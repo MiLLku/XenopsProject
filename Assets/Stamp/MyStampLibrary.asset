@@ -24,3 +24,11 @@ MonoBehaviour:
       type: 0
       id: 2
     wallElements: []
+  - key: TREE_2x3
+    size: {x: 1, y: 1}
+    pivot: {x: 0, y: 0}
+    elements:
+    - position: {x: 0, y: 0}
+      type: 4
+      id: 2001
+    wallElements: []

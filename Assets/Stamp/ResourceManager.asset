@@ -14,7 +14,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   tileEntries:
   - id: 1
-    tileAsset: {fileID: 11400000, guid: 8d3e097e48dd5cb4485b66d8c6588a5e, type: 2}
+    tileAsset: {fileID: 11400000, guid: 0c67a9df6fb4e2d4ba274507e23810da, type: 2}
   - id: 2
-    tileAsset: {fileID: 11400000, guid: d5d2246936c651d4d8d38790f8c04899, type: 2}
-  entityEntries: []
+    tileAsset: {fileID: 11400000, guid: 61a7b1192820c244083f6d31d093faea, type: 2}
+  - id: 3
+    tileAsset: {fileID: 11400000, guid: 89b2ccd82923cd749afe9180155341ff, type: 2}
+  - id: 4
+    tileAsset: {fileID: 11400000, guid: 9c1e12e2ee1cc6e4faf7c9eff7f6b9d2, type: 2}
+  - id: 5
+    tileAsset: {fileID: 11400000, guid: 8bddc61e43f92014cb316794e645fcfc, type: 2}
+  entityEntries:
+  - id: 2001
+    prefab: {fileID: 1710648230924364092, guid: ae4d5b90c3812aa49b6e7271303dcf22, type: 3}
