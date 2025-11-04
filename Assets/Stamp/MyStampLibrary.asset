@@ -32,3 +32,11 @@ MonoBehaviour:
       type: 4
       id: 2001
     wallElements: []
+  - key: SPAWN_CHEST_3X2
+    size: {x: 1, y: 1}
+    pivot: {x: 0, y: 0}
+    elements:
+    - position: {x: 0, y: 0}
+      type: 2
+      id: 2002
+    wallElements: []

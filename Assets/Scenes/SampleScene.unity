@@ -800,6 +800,7 @@ MonoBehaviour:
   minTreeDistance: 5
   spawnAreaPadding: 15
   treePlacementChance: 0.5
+  spawnChestKey: SPAWN_CHEST_3X2
 --- !u!4 &2036225266
 Transform:
   m_ObjectHideFlags: 0
