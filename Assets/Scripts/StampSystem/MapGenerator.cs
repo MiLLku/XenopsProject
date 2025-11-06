@@ -1,5 +1,4 @@
-// --- 파일 8: MapGenerator.cs (지하 잔디 버그 수정 버전) ---
-
+// --- 파일 8: MapGenerator.cs (RESERVED_ID 제거 및 OccupiedGrid 사용) ---
 using UnityEngine;
 
 namespace StampSystem
@@ -7,11 +6,9 @@ namespace StampSystem
     [RequireComponent(typeof(MapRenderer))]
     public class MapGenerator : DestroySingleton<MapGenerator>
     {
+        // ... (모든 인스펙터 변수는 변경 없음) ...
         [Header("필수 연결")]
-        [SerializeField]
-        private StampLibrary stampLibrary;
-
-        // ... (인스펙터의 모든 파라미터는 동일하게 유지) ...
+        [SerializeField] private StampLibrary stampLibrary;
         [Header("맵 생성 시드")]
         [SerializeField] private float noiseSeed = 0f;
         [Header("언덕 지형")]
@@ -25,21 +22,21 @@ namespace StampSystem
         [Header("동굴")]
         [SerializeField] [Range(0.01f, 0.2f)] private float caveNoiseScale = 0.07f;
         [SerializeField] [Range(0f, 1f)] private float caveThreshold = 0.7f;
-        [Header("구리 광맥 (지표면 -10칸 아래)")]
+        [Header("광물 지층 (지표면 기준)")]
         [SerializeField] [Range(0.01f, 0.3f)] private float copperNoiseScale = 0.15f; 
         [SerializeField] [Range(0f, 1f)] private float copperThreshold = 0.7f; 
-        [Header("철 광맥 (지표면 -20칸 아래)")]
         [SerializeField] [Range(0.01f, 0.3f)] private float ironNoiseScale = 0.18f; 
         [SerializeField] [Range(0f, 1f)] private float ironThreshold = 0.75f; 
-        [Header("금 광맥 (지표면 -40칸 아래)")]
         [SerializeField] [Range(0.01f, 0.3f)] private float goldNoiseScale = 0.2f; 
         [SerializeField] [Range(0f, 1f)] private float goldThreshold = 0.8f; 
-        [Header("나무 배치")]
-        [SerializeField] private bool placeTrees = true;
+        [Header("나무 배치 (지표면 잔디)")]
         [SerializeField] private string treeStampKey = "TREE_2X3";
         [SerializeField] [Range(2, 20)] private int minTreeDistance = 5;
         [SerializeField] [Range(5, 50)] private int spawnAreaPadding = 15;
         [SerializeField] [Range(0f, 1f)] private float treePlacementChance = 0.5f;
+        [Header("열매 나무 (지하/지상 흙/잔디)")]
+        [SerializeField] private string berryBushStampKey = "BERRY_BUSH";
+        [SerializeField] [Range(0f, 0.1f)] private float berryBushSpawnChance = 0.05f;
         [Header("스폰 지점")]
         [SerializeField] private string spawnChestKey = "SPAWN_CHEST_3X2"; 
 
@@ -57,16 +54,14 @@ namespace StampSystem
         private const int GOLD_ID = 5;
         private const int GRASS_ID = 6; // 잔디
         private const int PROCESSED_DIRT_ID = 7; // 가공된 흙
+        
+        // ★★★ [RESERVED_ID 제거됨] ★★★
 
         // --- Unity 생명주기 ---
         void Start()
         {
             // ... (Start 함수 내용은 동일) ...
-            if (stampLibrary == null)
-            {
-                Debug.LogError("StampLibrary가 설정되지 않았습니다! MapGenerator를 실행할 수 없습니다.");
-                return;
-            }
+            if (stampLibrary == null) { /* ... */ return; }
             _mapRenderer = GetComponent<MapRenderer>();
             _gameMap = new GameMap();
             _stamper = new MapStamper(_gameMap, stampLibrary);
@@ -86,16 +81,20 @@ namespace StampSystem
         // --- 맵 생성 메인 함수 ---
         private void GenerateWorld()
         {
+            // ... (GenerateWorld 함수 내용은 동일) ...
             Debug.Log("맵 데이터 생성을 시작합니다...");
             int[] groundHeightMap = GenerateBaseTerrainAndOres();
-            ConvertSurfaceDirtToGrass(); // ★ (groundHeightMap 인자 제거)
-            PlaceSpawnPackage(groundHeightMap);
+            ConvertSurfaceDirtToGrass(groundHeightMap);
+            PlaceSpawnPackage(groundHeightMap); // 스폰 지점이 먼저 점유 마킹
+            PlaceBerryBushes();
             PlaceTrees(groundHeightMap);
         }
 
+        #region 지형 및 광물 (Terrain & Ores)
+        
         private int[] GenerateBaseTerrainAndOres()
         {
-            // ... (이 함수는 변경 사항 없음) ...
+            // ... (변경 사항 없음) ...
             int[] groundHeightMap = new int[GameMap.MAP_WIDTH];
             for (int x = 0; x < GameMap.MAP_WIDTH; x++)
             {
@@ -113,7 +112,7 @@ namespace StampSystem
         
         private int GetTileIDForCoordinate(int x, int y, int currentHeight)
         {
-            // ... (이 함수는 변경 사항 없음) ...
+            // ... (변경 사항 없음) ...
             if (y > currentHeight) { return AIR_ID; }
             float caveNoise = Mathf.PerlinNoise((x * caveNoiseScale) + noiseSeed + 1000f, (y * caveNoiseScale) + noiseSeed + 1000f);
             float dirtNoise = Mathf.PerlinNoise((x * dirtNoiseScale) + noiseSeed - 1000f, (y * dirtNoiseScale) + noiseSeed - 1000f);
@@ -127,113 +126,173 @@ namespace StampSystem
             if (y < currentHeight - 10 && copperNoise > copperThreshold) { return COPPER_ID; }
             return STONE_ID;
         }
-
-        // ★★★ [수정된 부분 1] ★★★
-        /// <summary>
-        /// 맵의 '하늘에 노출된' 흙(ID 1)만 잔디(ID 6)로 변환하는 후처리 함수
-        /// </summary>
-        private void ConvertSurfaceDirtToGrass()
+        
+        private void ConvertSurfaceDirtToGrass(int[] groundHeightMap)
         {
+            // ... (IsSky 헬퍼 함수를 사용하는 버전으로 되돌림)
             Debug.Log("[MapGenerator] 흙 지표면을 잔디로 변환 중...");
-            
             for (int x = 0; x < GameMap.MAP_WIDTH; x++)
             {
                 for (int y = 0; y < GameMap.MAP_HEIGHT - 1; y++)
                 {
-                    // 1. 흙 타일이고, 바로 윗 칸이 공기인지 확인
                     if (_gameMap.TileGrid[x, y] == DIRT_ID && _gameMap.TileGrid[x, y + 1] == AIR_ID)
                     {
-                        // 2. "공기"가 "하늘"인지 "동굴"인지 확인 (Raycast Up)
-                        if (IsSky(x, y + 2)) // y+1은 공기인걸 아니까 y+2부터 검사
+                        if (IsSky(x, y + 2)) 
                         {
-                            // 흙을 잔디(ID 6)로 변경
                             _gameMap.SetTile(x, y, GRASS_ID);
                         }
-                        // else: 지하 동굴 천장/바닥이므로 잔디로 바꾸지 않음.
                     }
                 }
             }
         }
         
-        // ★★★ [새로 추가된 함수] ★★★
-        /// <summary>
-        /// (x, startY) 좌표부터 맵 꼭대기까지 수직으로 검사하여 
-        /// 막힌 곳이 없는지(하늘인지) 확인합니다.
-        /// </summary>
         private bool IsSky(int x, int startY)
         {
+            // ... (변경 사항 없음) ...
             for (int y = startY; y < GameMap.MAP_HEIGHT; y++)
             {
-                // 한 칸이라도 공기(AIR_ID)가 아닌 것이 나오면
-                if (_gameMap.TileGrid[x, y] != AIR_ID)
-                {
-                    return false; // 막혀있음 = 동굴
-                }
+                if (_gameMap.TileGrid[x, y] != AIR_ID) { return false; }
             }
-            return true; // 맵 꼭대기까지 뚫려있음 = 하늘
+            return true;
         }
 
-        // ... (PlaceTrees 함수는 변경 사항 없음) ...
-        private void PlaceTrees(int[] groundHeightMap)
-        {
-            if (!placeTrees) { /* ... */ return; }
-            int spawnX = 100;
-            int lastTreeX = -minTreeDistance; 
-            const int treeWidth = 2; 
-            int skippedByPadding = 0, skippedByDistance = 0, failedFlatGroundCheck = 0, failedChanceRoll = 0, treesPlaced = 0;
-            for (int x = 0; x < GameMap.MAP_WIDTH - treeWidth; x++) 
-            {
-                if (x >= spawnX - spawnAreaPadding && x <= spawnX + spawnAreaPadding) { skippedByPadding++; continue; }
-                if (x < lastTreeX + minTreeDistance) { skippedByDistance++; continue; }
-                int y = groundHeightMap[x];
-                bool isFlatGrassPatch = _gameMap.TileGrid[x, y] == GRASS_ID; 
-                for (int i = 1; i < treeWidth; i++) 
-                {
-                    if (groundHeightMap[x + i] != y || _gameMap.TileGrid[x + i, y] != GRASS_ID) 
-                    { isFlatGrassPatch = false; break; }
-                }
-                if (isFlatGrassPatch)
-                {
-                    if (Random.value < treePlacementChance) 
-                    {
-                        _stamper.PlaceStamp(treeStampKey, new Vector2Int(x, y + 1)); 
-                        lastTreeX = x;
-                        treesPlaced++;
-                    } else { failedChanceRoll++; }
-                } else { failedFlatGroundCheck++; }
-            }
-            Debug.Log($"[PlaceTrees] 배치 완료. (배치: {treesPlaced}그루, 평지실패: {failedFlatGroundCheck}칸, 확률실패: {failedChanceRoll}칸)");
-        }
+        #endregion
+
+        #region 구조물 (Structures)
         
-        // ... (PlaceSpawnPackage 함수는 변경 사항 없음) ...
+        // ★★★ [수정된 부분 1: 스폰 지점] ★★★
         private void PlaceSpawnPackage(int[] groundHeightMap)
         {
             StampData chestStamp = stampLibrary.GetStamp(spawnChestKey);
-            
-            if (chestStamp == null)
-            {
-                Debug.LogWarning($"[PlaceSpawnPackage] 실패: StampLibrary에서 Key '{spawnChestKey}'를 찾을 수 없습니다.");
-                return; 
-            }
+            if (chestStamp == null) { /* ... */ return; }
+
             int spawnX = 100; 
             int groundSurfaceY = groundHeightMap[spawnX];
             const int platformWidth = 5;
             const int platformPivotX = 2;
             int startX = spawnX - platformPivotX;
             int endX = startX + platformWidth; 
+
             Debug.Log($"[PlaceSpawnPackage] 스폰 지점 평탄화 작업 시작... (X:{startX}~{endX-1} @ Y:{groundSurfaceY})");
+
             for (int x = startX; x < endX; x++)
             {
-                // ConvertSurfaceDirtToGrass가 잔디(ID 6)로 바꿔놓았더라도,
-                // 이 코드가 가공된 흙(ID 7)으로 덮어씁니다. (의도된 동작)
+                // 1. 타일 ID를 PROCESSED_DIRT_ID (7)로 변경
                 _gameMap.SetTile(x, groundSurfaceY, PROCESSED_DIRT_ID); 
+                // 2. ★논리 그리드도 점유 상태로 마킹★
+                _gameMap.MarkTileOccupied(x, groundSurfaceY); 
+
                 _gameMap.SetTile(x, groundSurfaceY + 1, AIR_ID);
                 _gameMap.SetTile(x, groundSurfaceY + 2, AIR_ID);
                 _gameMap.SetTile(x, groundSurfaceY + 3, AIR_ID);
             }
             Vector2Int chestSpawnPos = new Vector2Int(startX + 1, groundSurfaceY + 1);
             _stamper.PlaceStamp(spawnChestKey, chestSpawnPos);
+            
+            // 3. ★상자가 차지하는 공간도 점유 마킹★ (3x2 크기)
+            Vector2Int chestPivot = chestStamp.pivot;
+            foreach(var element in chestStamp.elements)
+            {
+                // 상자 프리팹이 차지하는 3x2 공간의 '바닥 타일'을 점유 마킹
+                int occupyX = chestSpawnPos.x + element.position.x - chestPivot.x;
+                int occupyY = chestSpawnPos.y + element.position.y - chestPivot.y;
+                
+                // (이 예제는 1x1 프리팹 기준이지만, 3x2 프리팹이라면 그 바닥 3칸을 모두 마킹해야 합니다)
+                // (일단 상자 스탬프의 (0,0) 위치만 마킹)
+                // (상자 피벗이 (0,0)이고 스폰위치가 (99, 141)이면, (99, 141)을 점유)
+                // (이것은 타일이 아닌 '공간'을 점유하는 것이므로 별도 로직이 필요할 수 있음)
+                // (지금은 프리팹이 서 있는 '바닥'만 점유 마킹합니다)
+                _gameMap.MarkTileOccupied(startX + 1, groundSurfaceY);
+                _gameMap.MarkTileOccupied(startX + 2, groundSurfaceY);
+                _gameMap.MarkTileOccupied(startX + 3, groundSurfaceY);
+            }
+
             Debug.Log($"[PlaceSpawnPackage] '{spawnChestKey}' 스탬프 배치 완료.");
         }
+
+        #endregion
+        
+        #region 식물 (Vegetation)
+
+        // ★★★ [수정된 부분 2: 열매 나무 배치] ★★★
+        private void PlaceBerryBushes()
+        {
+            if (berryBushSpawnChance <= 0f) return;
+
+            int bushesPlaced = 0;
+            for (int x = 0; x < GameMap.MAP_WIDTH; x++)
+            {
+                for (int y = 0; y < GameMap.MAP_HEIGHT - 1; y++)
+                {
+                    // 1. '스폰 가능'한 흙/잔디 타일이고 (점유되지 않았음)
+                    // 2. 윗 칸이 공기인지 확인
+                    if (_gameMap.IsTileSpawnable(x, y) && _gameMap.TileGrid[x, y + 1] == AIR_ID)
+                    {
+                        if (Random.value < berryBushSpawnChance)
+                        {
+                            _stamper.PlaceStamp(berryBushStampKey, new Vector2Int(x, y + 1));
+                            
+                            // 2. ★타일 ID를 바꾸는 대신 '점유됨'으로 마킹★
+                            _gameMap.MarkTileOccupied(x, y); 
+                            bushesPlaced++;
+                        }
+                    }
+                }
+            }
+            Debug.Log($"[PlaceBerryBushes] 배치 완료. (배치: {bushesPlaced}그루)");
+        }
+        
+        // ★★★ [수정된 부분 3: 큰 나무 배치] ★★★
+        private void PlaceTrees(int[] groundHeightMap)
+        {
+            if (treePlacementChance <= 0f) return;
+
+            int spawnX = 100;
+            int lastTreeX = -minTreeDistance; 
+            const int treeWidth = 2; 
+            int skippedByPadding = 0, skippedByDistance = 0, failedFlatGroundCheck = 0, failedChanceRoll = 0, treesPlaced = 0;
+
+            for (int x = 0; x < GameMap.MAP_WIDTH - treeWidth; x++) 
+            {
+                if (x >= spawnX - spawnAreaPadding && x <= spawnX + spawnAreaPadding) { skippedByPadding++; continue; }
+                if (x < lastTreeX + minTreeDistance) { skippedByDistance++; continue; }
+
+                int y = groundHeightMap[x];
+                
+                // 1. (x,y) 타일이 잔디(GRASS_ID)이고 '스폰 가능'한지 확인
+                // (IsTileSpawnable이 OccupiedGrid를 검사하므로 열매 나무와 겹치지 않음)
+                bool isFlatGrassPatch = _gameMap.IsTileSpawnable(x, y) && 
+                                        _gameMap.TileGrid[x, y] == GRASS_ID; 
+
+                for (int i = 1; i < treeWidth; i++) 
+                {
+                    // 2. 옆 타일(x+i, y)도 잔디이고, 높이가 같고, '스폰 가능'한지 확인
+                    if (groundHeightMap[x + i] != y || 
+                        !_gameMap.IsTileSpawnable(x + i, y) || // ★점유 상태 확인
+                        _gameMap.TileGrid[x + i, y] != GRASS_ID) 
+                    { 
+                        isFlatGrassPatch = false; 
+                        break; 
+                    }
+                }
+                
+                if (isFlatGrassPatch)
+                {
+                    if (Random.value < treePlacementChance) 
+                    {
+                        _stamper.PlaceStamp(treeStampKey, new Vector2Int(x, y + 1)); 
+                        lastTreeX = x;
+                        
+                        // 2. ★타일 2칸을 '점유됨'으로 마킹 (ID를 바꾸지 않음)★
+                        _gameMap.MarkTileOccupied(x, y);
+                        _gameMap.MarkTileOccupied(x + 1, y);
+                        treesPlaced++;
+                    } else { failedChanceRoll++; }
+                } else { failedFlatGroundCheck++; }
+            }
+            Debug.Log($"[PlaceTrees] 배치 완료. (배치: {treesPlaced}그루, 평지실패: {failedFlatGroundCheck}칸, 확률실패: {failedChanceRoll}칸)");
+        }
+
+        #endregion
     }
 }

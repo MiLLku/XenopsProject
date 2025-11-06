@@ -795,11 +795,12 @@ MonoBehaviour:
   ironThreshold: 0.75
   goldNoiseScale: 0.2
   goldThreshold: 0.8
-  placeTrees: 1
   treeStampKey: TREE_2x3
   minTreeDistance: 5
   spawnAreaPadding: 15
   treePlacementChance: 0.5
+  berryBushStampKey: BERRY_BUSH
+  berryBushSpawnChance: 0.05
   spawnChestKey: SPAWN_CHEST_3X2
 --- !u!4 &2036225266
 Transform:

@@ -27,8 +27,12 @@ MonoBehaviour:
     tileAsset: {fileID: 11400000, guid: 5a89eccf0c9fc6d49808bc2e49182d61, type: 2}
   - id: 7
     tileAsset: {fileID: 11400000, guid: a8cbe485403eb084d933251a84a1826d, type: 2}
+  - id: 99
+    tileAsset: {fileID: 0}
   entityEntries:
   - id: 2001
     prefab: {fileID: 1710648230924364092, guid: ae4d5b90c3812aa49b6e7271303dcf22, type: 3}
   - id: 2002
     prefab: {fileID: 7158746851217845667, guid: 93e10cc539125c34aa9bc78f38b33ccb, type: 3}
+  - id: 2003
+    prefab: {fileID: 5254875874074808394, guid: 01013e3909ccf4748b87fb969a5726aa, type: 3}

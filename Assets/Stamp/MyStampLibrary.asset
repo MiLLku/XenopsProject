@@ -40,3 +40,11 @@ MonoBehaviour:
       type: 2
       id: 2002
     wallElements: []
+  - key: BERRY_BUSH
+    size: {x: 1, y: 1}
+    pivot: {x: 0, y: 0}
+    elements:
+    - position: {x: 0, y: 0}
+      type: 4
+      id: 2003
+    wallElements: []
