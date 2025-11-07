@@ -1,104 +1,118 @@
-using StampSystem;
+// --- 파일 12: TileMiningManager.cs (수정본) ---
 using UnityEngine;
 using UnityEngine.Tilemaps;
 
-
-public class TileMiningManager : MonoBehaviour
+namespace StampSystem
 {
-    [Header("필수 연결")]
-    [Tooltip("좌표 변환을 위해 GroundTilemap을 연결해야 합니다.")]
-    [SerializeField] private Tilemap groundTilemap;
-
-    [Tooltip("자원 드랍 아이템을 담을 부모 (없으면 씬 루트에 생성됨)")]
-    [SerializeField] private Transform itemDropParent;
-    
-    // 사용할 시스템 참조 (싱글턴을 통해 가져옴)
-    private GameMap _gameMap;
-    private MapRenderer _mapRenderer;
-    private ResourceManager _resourceManager; // 리소스 매니저 참조
-
-    void Start()
+    public class TileMiningManager : MonoBehaviour
     {
-        // MapGenerator가 생성한 인스턴스들을 가져옵니다.
-        _gameMap = MapGenerator.instance.GameMapInstance;
-        _mapRenderer = MapGenerator.instance.MapRendererInstance;
+        [Header("필수 연결 (씬)")]
+        [SerializeField] private Tilemap groundTilemap;
+        [SerializeField] private Transform itemDropParent;
         
-        // ★★★ [수정된 부분 1] ★★★
-        // 맵 렌더러의 public 필드에서 리소스 매니저를 직접 가져옵니다.
-        if (_mapRenderer != null)
-        {
-            _resourceManager = _mapRenderer.GetResourceManager();
-        }
-        else
-        {
-            Debug.LogError("TileMiningManager: MapRenderer 인스턴스를 찾을 수 없습니다!");
-        }
-    }
+        // --- 내부 참조 ---
+        private GameMap _gameMap;
+        private MapRenderer _mapRenderer;
+        private ResourceManager _resourceManager;
 
-    void Update()
-    {
-        // 왼쪽 마우스 버튼을 클릭했을 때
-        if (Input.GetMouseButtonDown(0))
+        // ★★★ [수정된 Start() 함수] ★★★
+        void Start()
         {
-            // 마우스 위치를 월드 좌표로 변환
-            Vector3 worldPos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+            // MapGenerator.Awake()가 먼저 실행되어 모든 것을 준비했는지 확인
+            if (MapGenerator.instance == null)
+            {
+                Debug.LogError("TileMiningManager: 씬에 MapGenerator가 없습니다!");
+                return;
+            }
+
+            // MapGenerator의 공개 프로퍼티에서 모든 참조를 가져옴
+            _gameMap = MapGenerator.instance.GameMapInstance;
+            _mapRenderer = MapGenerator.instance.MapRendererInstance;
+            _resourceManager = MapGenerator.instance.ResourceManagerInstance;
+
+            // (MapGenerator.Awake에서 이미 null 체크를 했지만, 한 번 더 확인)
+            if (_gameMap == null || _mapRenderer == null || _resourceManager == null)
+            {
+                Debug.LogError("TileMiningManager: MapGenerator가 시스템을 제대로 초기화하지 못했습니다! (Awake 실패)");
+            }
+        }
+
+        // ... (Update, MineTile 함수는 기존과 동일하게 유지) ...
+        void Update()
+        {
+            // _gameMap이 null이면 Update를 실행하지 않음 (안전장치)
+            if (_gameMap == null) return; 
+        
+            if (Input.GetMouseButtonDown(0))
+            {
+                // ★★★ [수정된 부분 1] ★★★
+                // 마우스 위치를 Vector3 변수로 먼저 가져옵니다.
+                Vector3 mousePos = Input.mousePosition;
             
-            // 월드 좌표를 타일맵 셀 좌표로 변환
-            Vector3Int cellPos = groundTilemap.WorldToCell(worldPos);
+                // ★★★ [수정된 부분 2] ★★★
+                // Z 좌표(깊이)를 카메라와 타일맵(Z=0) 사이의 거리로 설정합니다.
+                // (카메라가 -10에 있으므로 거리는 10입니다.)
+                mousePos.z = -Camera.main.transform.position.z; 
 
-            // 타일 채광 시도
-            MineTile(cellPos.x, cellPos.y);
-        }
-    }
+                // 이제 z=10으로 설정된 마우스 위치를 월드 좌표로 변환합니다.
+                Vector3 worldPos = Camera.main.ScreenToWorldPoint(mousePos);
+            
+                // 월드 좌표를 타일맵 셀 좌표로 변환
+                Vector3Int cellPos = groundTilemap.WorldToCell(worldPos);
 
-    /// <summary>
-    /// (x, y) 좌표의 타일을 채광합니다.
-    /// </summary>
-    public void MineTile(int x, int y)
-    {
-        // 맵 경계 밖이면 무시
-        if (x < 0 || x >= GameMap.MAP_WIDTH || y < 0 || y >= GameMap.MAP_HEIGHT)
-            return;
-
-        // 1. 맵 데이터에서 현재 타일 ID를 가져옵니다.
-        int tileID = _gameMap.TileGrid[x, y];
-
-        // 2. 채광 불가능한 타일인지 확인 (공기, 가공된 흙 등)
-        // (참고: ID 99(예약됨)은 이제 OccupiedGrid로 대체되어 검사할 필요 없음)
-        if (tileID == AIR_ID || tileID == PROCESSED_DIRT_ID) 
-        {
-            return; // 채광 불가
-        }
-
-        // ★★★ [수정된 부분 2] ★★★
-        // 3. 리소스 매니저가 있는지 확인 (Start에서 이미 할당됨)
-        if (_resourceManager == null)
-        {
-            Debug.LogError("TileMiningManager: ResourceManager가 할당되지 않았습니다!");
-            return;
+                // ★★★ 디버그 로그 추가 (확인용) ★★★
+                Debug.Log($"[MineTile] 마우스 클릭! -> Cell: ({cellPos.x}, {cellPos.y})");
+            
+                MineTile(cellPos.x, cellPos.y);
+            }
         }
         
-        // 4. 드랍할 아이템 프리팹을 가져옵니다.
-        GameObject dropPrefab = _resourceManager.GetDropPrefab(tileID);
+        // --- [교체할 MineTile 함수] ---
 
-        // 5. 드랍 아이템이 있으면 생성(Instantiate)합니다.
-        if (dropPrefab != null)
+        public void MineTile(int x, int y)
         {
-            // 타일의 중앙 위치 계산
-            Vector3 dropPos = groundTilemap.CellToWorld(new Vector3Int(x, y, 0)) 
-                            + new Vector3(0.5f, 0.5f, 0); // 타일 중앙
-                            
-            Instantiate(dropPrefab, dropPos, Quaternion.identity, itemDropParent);
-        }
+            if (_gameMap == null) return; // (Start에서 실패 시)
 
-        // 6. 맵 데이터를 공기(AIR_ID = 0)로 변경합니다.
-        _gameMap.SetTile(x, y, AIR_ID);
-        
-        // 7. 맵 렌더러에게 해당 타일을 새로고침(지우기)하라고 알립니다.
-        _mapRenderer.UpdateTileVisual(x, y);
+            // 1. 맵 경계 확인
+            if (x < 0 || x >= GameMap.MAP_WIDTH || y < 0 || y >= GameMap.MAP_HEIGHT)
+                return;
+
+            // 2. 맵 데이터에서 타일 ID 가져오기
+            int tileID = _gameMap.TileGrid[x, y];
+            
+            // ★★★ 디버그 로그 1: 클릭한 좌표와 타일 ID 확인 ★★★
+            Debug.Log($"[MineTile] 클릭 좌표: ({x}, {y}), 타일 ID: {tileID}");
+
+            // 3. 채광 가능한 타일인지 확인
+
+
+            // 4. 리소스 매니저 확인
+            if (_resourceManager == null)
+            {
+                Debug.LogError("[MineTile] _resourceManager가 null입니다. Start()에서 할당 실패!");
+                return;
+            }
+            
+            // 5. 드랍 아이템 가져오기
+            GameObject dropPrefab = _resourceManager.GetDropPrefab(tileID);
+
+            if (dropPrefab != null)
+            {
+                Debug.Log($"[MineTile] ID {tileID}에 해당하는 아이템 '{dropPrefab.name}'을 드랍합니다.");
+                Vector3 dropPos = groundTilemap.CellToWorld(new Vector3Int(x, y, 0)) + new Vector3(0.5f, 0.5f, 0);
+                Instantiate(dropPrefab, dropPos, Quaternion.identity, itemDropParent);
+            }
+            else
+            {
+                // ★★★ 디버그 로그 3: 아이템은 없지만 타일은 제거
+                Debug.LogWarning($"[MineTile] ID {tileID}에 해당하는 드랍 아이템이 MyResourceManager에 없습니다. 타일만 제거합니다.");
+            }
+
+            // 6. 맵 데이터 변경 (공기로)
+            _gameMap.SetTile(x, y, 0);
+            
+            // 7. 맵 시각적 업데이트
+            _mapRenderer.UpdateTileVisual(x, y);
+        }
     }
-    
-    // (ID 상수 정의 - 가독성을 위해 추가)
-    private const int AIR_ID = 0;
-    private const int PROCESSED_DIRT_ID = 7;
 }

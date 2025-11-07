@@ -606,6 +606,7 @@ GameObject:
   - component: {fileID: 1241738021}
   - component: {fileID: 1241738023}
   - component: {fileID: 1241738022}
+  - component: {fileID: 1241738024}
   m_Layer: 0
   m_Name: GroundTileMap
   m_TagString: Untagged
@@ -718,6 +719,75 @@ Tilemap:
     e31: 0
     e32: 0
     e33: 1
+--- !u!19719996 &1241738024
+TilemapCollider2D:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1241738020}
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Density: 1
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_ForceSendLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_ForceReceiveLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_ContactCaptureLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_CallbackLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_IsTrigger: 0
+  m_UsedByEffector: 0
+  m_CompositeOperation: 0
+  m_CompositeOrder: 0
+  m_Offset: {x: 0, y: 0}
+  m_MaximumTileChangeCount: 1000
+  m_ExtrusionFactor: 0
+  m_UseDelaunayMesh: 0
+--- !u!1 &1549885617
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1549885618}
+  m_Layer: 0
+  m_Name: ItemDrop
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1549885618
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1549885617}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 92.98025, y: 142.36539, z: 0.09962782}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1749753809
 GameObject:
   m_ObjectHideFlags: 0
@@ -760,6 +830,7 @@ GameObject:
   - component: {fileID: 2036225266}
   - component: {fileID: 2036225265}
   - component: {fileID: 2036225267}
+  - component: {fileID: 2036225268}
   m_Layer: 0
   m_Name: MapGenerator
   m_TagString: Untagged
@@ -780,6 +851,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   stampLibrary: {fileID: 11400000, guid: fb37653c146d13446bf5e48561adb058, type: 2}
+  resourceManager: {fileID: 11400000, guid: cfaa5a2ef0430c3489ca73dad8de3ac2, type: 2}
   noiseSeed: 0
   baseGroundLevel: 140
   hillAmplitude: 10
@@ -829,10 +901,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b6e298c15198c6f40a53744e94a06a4a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  resourceManager: {fileID: 11400000, guid: cfaa5a2ef0430c3489ca73dad8de3ac2, type: 2}
   tilemap: {fileID: 1241738023}
   wallTilemap: {fileID: 196351258}
   entityParent: {fileID: 1749753810}
+--- !u!114 &2036225268
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2036225264}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: edd17cc976927ec43b01863fe32d8713, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  groundTilemap: {fileID: 1241738023}
+  itemDropParent: {fileID: 1549885618}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
@@ -843,3 +928,4 @@ SceneRoots:
   - {fileID: 2036225266}
   - {fileID: 726016357}
   - {fileID: 1749753810}
+  - {fileID: 1549885618}

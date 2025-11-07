@@ -36,3 +36,10 @@ MonoBehaviour:
     prefab: {fileID: 7158746851217845667, guid: 93e10cc539125c34aa9bc78f38b33ccb, type: 3}
   - id: 2003
     prefab: {fileID: 5254875874074808394, guid: 01013e3909ccf4748b87fb969a5726aa, type: 3}
+  dropEntries:
+  - tileId: 1
+    dropPrefab: {fileID: 3067016773091759138, guid: 9b84a16ecf73d7a449f78d0b9d7a5396, type: 3}
+  - tileId: 2
+    dropPrefab: {fileID: 6183017390741095587, guid: ba7798f2402edb541b30034d8c51b650, type: 3}
+  - tileId: 3
+    dropPrefab: {fileID: 5880118806919359641, guid: a2dc3bd5d8492394682a37e21136c449, type: 3}

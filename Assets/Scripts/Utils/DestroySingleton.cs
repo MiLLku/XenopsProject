@@ -4,5 +4,5 @@ using UnityEngine;
 public class DestroySingleton<T> : MonoBehaviour where T : MonoBehaviour
 {
     public static T instance;
-    private void Awake() { instance = this as T; }
+    protected virtual void Awake() { instance = this as T; }
 }
