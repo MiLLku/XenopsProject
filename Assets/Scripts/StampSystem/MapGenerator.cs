@@ -9,6 +9,7 @@ namespace StampSystem
         // ... (모든 인스펙터 변수는 변경 없음) ...
         [Header("필수 연결")]
         [SerializeField] private StampLibrary stampLibrary;
+        [SerializeField] private ResourceManager resourceManager;
         [Header("맵 생성 시드")]
         [SerializeField] private float noiseSeed = 0f;
         [Header("언덕 지형")]
@@ -55,7 +56,11 @@ namespace StampSystem
         private const int GRASS_ID = 6; // 잔디
         private const int PROCESSED_DIRT_ID = 7; // 가공된 흙
         
-        // ★★★ [RESERVED_ID 제거됨] ★★★
+        public GameMap GameMapInstance { get; private set; }
+        public MapStamper StamperInstance { get; private set; }
+        public MapRenderer MapRendererInstance { get; private set; }
+        public ResourceManager ResourceManagerInstance { get; private set; }
+        
 
         // --- Unity 생명주기 ---
         void Start()

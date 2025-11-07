@@ -143,5 +143,21 @@ namespace StampSystem
                 }
             }
         }
+        
+        public void UpdateTileVisual(int x, int y)
+        {
+            // 1. 맵 데이터에서 현재 타일 ID를 가져옵니다.
+            int newTileId = _gameMap.TileGrid[x, y];
+        
+            // 2. 리소스 매니저에서 ID에 맞는 타일 에셋을 찾습니다.
+            TileBase tileAsset = resourceManager.GetTileAsset(newTileId);
+        
+            // 3. 타일맵에 해당 타일을 덮어씁니다. (ID가 0이면 null이 반환되어 타일이 지워짐)
+            tilemap.SetTile(new Vector3Int(x, y, 0), tileAsset);
+        }
+        public ResourceManager GetResourceManager()
+        {
+            return resourceManager;
+        }
     }
 }
