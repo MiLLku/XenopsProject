@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 5817762475643612052}
   - component: {fileID: 679024733187388540}
   - component: {fileID: 1809651295312494079}
-  m_Layer: 0
+  m_Layer: 8
   m_Name: Dirt_Item
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -96,7 +96,7 @@ CircleCollider2D:
   m_CompositeOperation: 0
   m_CompositeOrder: 0
   m_Offset: {x: 0, y: 0}
-  m_Radius: 0.3
+  m_Radius: 0.05
 --- !u!212 &1809651295312494079
 SpriteRenderer:
   m_ObjectHideFlags: 0
@@ -140,7 +140,7 @@ SpriteRenderer:
   m_LightmapParameters: {fileID: 0}
   m_SortingLayerID: 0
   m_SortingLayer: 0
-  m_SortingOrder: 0
+  m_SortingOrder: 1
   m_Sprite: {fileID: 2032404783, guid: fd59d6577824a024caef876e46b0618f, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
