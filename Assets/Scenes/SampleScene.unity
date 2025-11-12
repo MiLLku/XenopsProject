@@ -935,6 +935,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   groundTilemap: {fileID: 1241738023}
   itemDropParent: {fileID: 1549885618}
+  placementGhostPrefab: {fileID: 1585732620892157529, guid: e8a0f14d7c8af924b88eed92197adc3f, type: 3}
+  validColor: {r: 0, g: 1, b: 0, a: 0.5}
+  invalidColor: {r: 1, g: 0, b: 0, a: 0.5}
+  testBuildingToBuild: {fileID: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

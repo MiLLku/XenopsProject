@@ -12,6 +12,7 @@ GameObject:
   - component: {fileID: 5817762475643612052}
   - component: {fileID: 679024733187388540}
   - component: {fileID: 1809651295312494079}
+  - component: {fileID: 1038059220174686865}
   m_Layer: 8
   m_Name: Dirt_Item
   m_TagString: Untagged
@@ -152,3 +153,17 @@ SpriteRenderer:
   m_WasSpriteAssigned: 1
   m_MaskInteraction: 0
   m_SpriteSortPoint: 0
+--- !u!114 &1038059220174686865
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3067016773091759138}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 441dc1cc6e8958042939b6577003fe30, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  itemData: {fileID: 0}
+  highlightObject: {fileID: 0}

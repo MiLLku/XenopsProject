@@ -217,23 +217,45 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         /// </summary>
         private void PlaceBuilding(Vector3Int gridBasePos)
         {
+            // ★★★ [수정된 부분 1: 재료 확인] ★★★
+            // 1. 글로벌 인벤토리에 이 건물의 건설 비용만큼 재료가 있는지 확인합니다.
+            if (InventoryManager.instance == null)
+            {
+                Debug.LogError("[Interaction] InventoryManager를 찾을 수 없습니다!");
+                return;
+            }
+            
+            // 건설에 필요한 자원 목록 (예: 돌 2, 흙 1)
+            var requiredRes = _buildingToBuild.requiredResources;
+
+            if (!InventoryManager.instance.HasItems(requiredRes))
+            {
+                Debug.LogWarning($"[Interaction] 재료가 부족하여 '{_buildingToBuild.buildingName}'을(를) 건설할 수 없습니다.");
+                // (나중에 여기에 "재료 부족" UI 알림 띄우기)
+                return;
+            }
+            // ★★★ [수정 끝] ★★★
+
+
+            // --- 재료가 있으므로 건설 진행 ---
+
             Debug.Log($"[Interaction] '{_buildingToBuild.buildingName}' 건설!");
 
-            // 1. (나중에) 인벤토리에서 재료 소모
-            // InventoryManager.Instance.RemoveItems(_buildingToBuild.requiredResources);
+            // 2. 인벤토리에서 재료 소모
+            InventoryManager.instance.RemoveItems(requiredRes);
 
-            // 2. 실제 프리팹 생성 (MapRenderer의 entityParent를 public으로 변경해야 함)
+            // 3. 실제 프리팹 생성 (MapRenderer의 entityParent는 public이어야 함)
             Vector3 worldPos = groundTilemap.CellToWorld(gridBasePos);
             GameObject buildingObj = Instantiate(_buildingToBuild.buildingPrefab, worldPos, Quaternion.identity, _mapRenderer.entityParent); 
             
-            // 3. 건물 스크립트 초기화
+            // 4. 건물 스크립트 초기화
             Building buildingScript = buildingObj.GetComponent<Building>();
             if(buildingScript != null)
             {
                 buildingScript.Initialize(_buildingToBuild);
             }
 
-            // 4. 맵 데이터에 점유 상태(OccupiedGrid) 마킹
+            // 5. 맵 데이터에 점유 상태(OccupiedGrid) 마킹
             int startX = gridBasePos.x;
             int startY = gridBasePos.y;
             
@@ -245,7 +267,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
                 }
             }
             
-            // 5. 건설 모드 종료
+            // 6. 건설 모드 종료
             ExitBuildMode();
         }
         
