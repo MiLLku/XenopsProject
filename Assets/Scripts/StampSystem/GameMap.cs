@@ -16,6 +16,7 @@ public class GameMap
 {
     public const int MAP_WIDTH = 200;
     public const int MAP_HEIGHT = 200;
+    private const int AIR_ID = 0;
 
     public int[,] TileGrid { get; private set; }
     public int[,] WallGrid { get; private set; }
@@ -55,41 +56,46 @@ public class GameMap
             Entities.Add(entity);
         }
     }
+    public bool IsSolidGround(int x, int y)
+    {
+        if (!IsInBounds(x, y)) return false;
+        
+        int tileID = TileGrid[x, y];
+        return tileID != AIR_ID;
+    }
     
-    // ★★★ [새로 추가된 함수 1] ★★★
-    /// <summary>
-    /// (x, y) 타일을 점유 상태로 마킹합니다.
-    /// </summary>
+    public bool IsSpaceAvailable(int x, int y)
+    {
+        if (!IsInBounds(x, y)) return false;
+        
+        // 공기 타일이고, 점유되지 않았는지 확인
+        return TileGrid[x, y] == AIR_ID && !IsTileOccupied(x, y);
+    }
+    
+    public void UnmarkTileOccupied(int x, int y)
+    {
+        if (IsInBounds(x, y)) OccupiedGrid[x, y] = false;
+    }
+    
     public void MarkTileOccupied(int x, int y)
     {
         if (IsInBounds(x, y)) OccupiedGrid[x, y] = true;
     }
-
-    // ★★★ [새로 추가된 함수 2] ★★★
-    /// <summary>
-    /// (x, y) 타일이 점유되었는지 확인합니다.
-    /// </summary>
+    
     public bool IsTileOccupied(int x, int y)
     {
-        if (!IsInBounds(x, y)) return true; // 맵 밖은 점유된 것으로 간주
+        if (!IsInBounds(x, y)) return true; 
         return OccupiedGrid[x, y];
     }
     
-    // ★★★ [수정된 함수] ★★★
-    /// <summary>
-    /// 해당 타일이 흙(ID 1) 또는 잔디(ID 6)인지,
-    /// 그리고 '아직 점유되지 않았는지' 확인합니다.
-    /// </summary>
     public bool IsTileSpawnable(int x, int y)
     {
         if (!IsInBounds(x, y)) return false;
         
-        // 1. 이미 점유되었으면 false
         if (IsTileOccupied(x, y)) return false; 
         
         int tileID = TileGrid[x, y];
         
-        // 2. 흙(ID 1)이거나 잔디(ID 6)일 때만 true 반환
         return (tileID == 1 || tileID == 6); 
     }
 

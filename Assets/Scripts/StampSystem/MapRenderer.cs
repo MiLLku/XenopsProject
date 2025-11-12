@@ -8,7 +8,7 @@ public class MapRenderer : MonoBehaviour
     [Header("필수 연결")]
     [SerializeField] private Tilemap tilemap;
     [SerializeField] private Tilemap wallTilemap;
-    [SerializeField] private Transform entityParent;
+    [SerializeField] public Transform entityParent;
 
     private GameMap _gameMap;
     private ResourceManager _resourceManager;
