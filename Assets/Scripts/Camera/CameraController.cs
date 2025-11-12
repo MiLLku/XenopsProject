@@ -2,7 +2,6 @@
 // 메인 카메라에 붙여서 WASD 이동, 줌, 맵 경계 제한을 담당합니다.
 
 using UnityEngine;
-using StampSystem; // GameMap의 상수에 접근하기 위해 필요
 
 public class CameraController : MonoBehaviour
 {
@@ -44,22 +43,15 @@ public class CameraController : MonoBehaviour
 
     void Update()
     {
-        // --- 1. 이동 (WASD) ---
         float horizontalInput = Input.GetAxisRaw("Horizontal"); 
         float verticalInput = Input.GetAxisRaw("Vertical");     
         Vector3 moveDirection = (Vector3.right * horizontalInput) + (Vector3.up * verticalInput);
         transform.Translate(moveDirection.normalized * moveSpeed * Time.deltaTime);
 
-        // --- 2. 줌 (마우스 휠) ---
         float scrollInput = Input.GetAxis("Mouse ScrollWheel");
 
-        // ★★★ [디버그 로그 추가] ★★★
-        // 휠을 스크롤할 때만 콘솔에 로그가 찍히는지 확인합니다.
         if (scrollInput != 0f) 
         {
-            Debug.Log("휠 입력 감지! 값: " + scrollInput); 
-            // ★★★ [디버그 로그 추가 끝] ★★★
-
             float currentZoom = _cam.orthographicSize;
             currentZoom -= scrollInput * zoomSpeed;
             currentZoom = Mathf.Clamp(currentZoom, minOrthographicSize, maxOrthographicSize);
@@ -67,44 +59,38 @@ public class CameraController : MonoBehaviour
         }
     }
 
-    // Update()가 끝난 '직후'에 호출되어 좌표를 최종 보정합니다.
-    // ★★★ [수정된 부분 3: LateUpdate() 로직 수정] ★★★
     void LateUpdate()
     {
-        // 1. 줌이 변경되었을 수 있으므로, '매 프레임' 경계를 다시 계산합니다.
         CalculateBounds();
         
-        // 2. 현재 카메라 위치 가져오기
         Vector3 pos = transform.position;
         
-        // 3. 위치를 경계 사이로 제한
         ClampPosition(ref pos);
         
-        // 4. 보정된 위치로 다시 설정
         transform.position = pos;
     }
-
-    /// <summary>
-    /// 현재 카메라 줌 크기에 맞춰 맵 경계를 다시 계산합니다.
-    /// </summary>
+    
     private void CalculateBounds()
     {
         float camHeight = _cam.orthographicSize;
         float camWidth = _cam.orthographicSize * _cam.aspect;
 
-        // 타일은 (0, 0)부터 시작합니다.
         _minX = 0f + camWidth;
         _maxX = (float)GameMap.MAP_WIDTH - camWidth;
         _minY = 0f + camHeight;
         _maxY = (float)GameMap.MAP_HEIGHT - camHeight;
     }
 
-    /// <summary>
-    /// Vector3 위치를 계산된 경계(min/max) 사이로 제한합니다.
-    /// </summary>
     private void ClampPosition(ref Vector3 pos)
     {
         pos.x = Mathf.Clamp(pos.x, _minX, _maxX);
         pos.y = Mathf.Clamp(pos.y, _minY, _maxY);
+    }
+    
+    public Vector3 GetMouseWorldPosition()
+    {
+        Vector3 mousePos = Input.mousePosition;
+        mousePos.z = -_cam.transform.position.z; 
+        return _cam.ScreenToWorldPoint(mousePos);
     }
 }
