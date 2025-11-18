@@ -1,44 +1,39 @@
-
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
+/// <summary>
+/// WorkOrder 시스템과 연동하여 직원을 작업에 할당하는 매니저
+/// </summary>
 public class WorkManager : DestroySingleton<WorkManager>
 {
-    [Header("작업 대기열")]
-    [SerializeField] private List<WorkTask> pendingTasks = new List<WorkTask>();
-    [SerializeField] private List<WorkTask> activeTasks = new List<WorkTask>();
-    
     [Header("직원 관리")]
     [SerializeField] private List<Employee> allEmployees = new List<Employee>();
     [SerializeField] private List<Employee> idleEmployees = new List<Employee>();
     
-    [Header("작업 우선순위 설정")]
-    [SerializeField] private WorkPrioritySettings prioritySettings;
-    
     [Header("디버그")]
     [SerializeField] private bool showDebugInfo = true;
-    [SerializeField] private bool showWorkMarkers = true;
     
-    private Dictionary<WorkType, Queue<WorkTask>> taskQueues;
-    private Dictionary<IWorkTarget, WorkTask> targetToTaskMap;
+    private WorkOrderManager orderManager;
+    
+    // 직원별 현재 작업 중인 작업물 추적
+    private Dictionary<Employee, WorkOrder> employeeToOrderMap = new Dictionary<Employee, WorkOrder>();
     
     protected override void Awake()
     {
         base.Awake();
-        InitializeQueues();
-        targetToTaskMap = new Dictionary<IWorkTarget, WorkTask>();
-        
-        if (prioritySettings == null)
-        {
-            prioritySettings = new WorkPrioritySettings();
-        }
     }
     
     void Start()
     {
+        orderManager = WorkOrderManager.instance;
+        if (orderManager == null)
+        {
+            Debug.LogError("[WorkManager] WorkOrderManager를 찾을 수 없습니다!");
+        }
+        
         RefreshEmployeeList();
-        InvokeRepeating(nameof(ProcessWorkQueue), 1f, 0.5f); // 0.5초마다 작업 처리
+        InvokeRepeating(nameof(ProcessWorkAssignment), 1f, 0.5f);
     }
     
     void OnDestroy()
@@ -46,21 +41,10 @@ public class WorkManager : DestroySingleton<WorkManager>
         CancelInvoke();
     }
     
-    private void InitializeQueues()
-    {
-        taskQueues = new Dictionary<WorkType, Queue<WorkTask>>();
-        
-        foreach (WorkType type in System.Enum.GetValues(typeof(WorkType)))
-        {
-            taskQueues[type] = new Queue<WorkTask>();
-        }
-    }
-    
     #region 직원 관리
     
     public void RefreshEmployeeList()
     {
-        // 이전 이벤트 구독 해제
         foreach (var emp in allEmployees)
         {
             if (emp != null)
@@ -86,10 +70,9 @@ public class WorkManager : DestroySingleton<WorkManager>
     {
         UpdateIdleEmployees();
         
-        // 직원이 대기 상태가 되면 즉시 작업 할당 시도
         if (state == EmployeeState.Idle)
         {
-            ProcessWorkQueue();
+            ProcessWorkAssignment();
         }
     }
     
@@ -116,124 +99,83 @@ public class WorkManager : DestroySingleton<WorkManager>
         {
             allEmployees.Remove(employee);
             employee.OnStateChanged -= OnEmployeeStateChanged;
+            
+            // 해당 직원이 작업 중이던 작업물에서 제거
+            if (employeeToOrderMap.ContainsKey(employee))
+            {
+                WorkOrder order = employeeToOrderMap[employee];
+                order.UnassignWorker(employee);
+                employeeToOrderMap.Remove(employee);
+            }
+            
             UpdateIdleEmployees();
         }
     }
     
     #endregion
     
-    #region 작업 등록
-    
-    public void RegisterWork(IWorkTarget target)
-    {
-        if (target == null) return;
-        
-        // 이미 등록된 작업인지 확인
-        if (targetToTaskMap.ContainsKey(target)) return;
-        
-        WorkTask task = new WorkTask
-        {
-            target = target,
-            type = target.GetWorkType(),
-            position = target.GetWorkPosition(),
-            priority = prioritySettings.GetPriority(target.GetWorkType()),
-            createdTime = Time.time
-        };
-        
-        AddTask(task);
-    }
-    
-    private void AddTask(WorkTask task)
-    {
-        pendingTasks.Add(task);
-        taskQueues[task.type].Enqueue(task);
-        targetToTaskMap[task.target] = task;
-        
-        if (showDebugInfo)
-        {
-            Debug.Log($"[WorkManager] 새 작업 등록: {task.type} at {task.position}");
-        }
-        
-        // 작업 마커 표시
-        if (showWorkMarkers)
-        {
-            ShowWorkMarker(task);
-        }
-        
-        // 즉시 할당 시도
-        ProcessWorkQueue();
-    }
-    
-    public void UnregisterWork(IWorkTarget target)
-    {
-        if (!targetToTaskMap.ContainsKey(target)) return;
-        
-        WorkTask task = targetToTaskMap[target];
-        
-        // 대기 중인 작업에서 제거
-        if (pendingTasks.Contains(task))
-        {
-            pendingTasks.Remove(task);
-        }
-        
-        // 진행 중인 작업에서 제거
-        if (activeTasks.Contains(task))
-        {
-            task.assignedWorker?.CancelWork();
-            activeTasks.Remove(task);
-        }
-        
-        targetToTaskMap.Remove(target);
-    }
-    
-    #endregion
-    
     #region 작업 할당
     
-    private void ProcessWorkQueue()
+    /// <summary>
+    /// 유휴 직원에게 작업을 할당합니다.
+    /// </summary>
+    private void ProcessWorkAssignment()
     {
-        if (idleEmployees.Count == 0 || pendingTasks.Count == 0) return;
+        if (orderManager == null || idleEmployees.Count == 0)
+            return;
         
-        // 우선순위별로 작업 정렬
-        var sortedTasks = pendingTasks
-            .OrderBy(t => t.priority)
-            .ThenBy(t => t.createdTime)
-            .ToList();
+        // 우선순위별로 정렬된 작업물 가져오기
+        var activeOrders = orderManager.GetActiveOrders();
         
-        foreach (var task in sortedTasks)
+        foreach (var order in activeOrders)
         {
-            if (task.assignedWorker != null) continue;
-            
-            // 이 작업을 수행할 수 있는 가장 적합한 직원 찾기
-            Employee bestWorker = FindBestWorkerForTask(task);
-            
-            if (bestWorker != null)
+            // 이 작업물에 더 할당할 수 있는지 확인
+            while (order.CanAssignWorker() && idleEmployees.Count > 0)
             {
-                AssignTaskToEmployee(task, bestWorker);
+                // 이 작업에 적합한 직원 찾기
+                Employee bestWorker = FindBestWorkerForOrder(order);
                 
-                // 직원이 할당되면 다시 대기 직원 목록 업데이트
-                UpdateIdleEmployees();
-                
-                if (idleEmployees.Count == 0) break;
+                if (bestWorker != null)
+                {
+                    AssignWorkerToOrder(bestWorker, order);
+                    UpdateIdleEmployees();
+                }
+                else
+                {
+                    break; // 더 이상 할당 가능한 직원이 없음
+                }
             }
         }
     }
     
-    private Employee FindBestWorkerForTask(WorkTask task)
+    /// <summary>
+    /// 작업물에 가장 적합한 직원을 찾습니다.
+    /// </summary>
+    private Employee FindBestWorkerForOrder(WorkOrder order)
     {
+        // 해당 작업을 수행할 수 있는 직원 필터링
         var capableWorkers = idleEmployees
-            .Where(e => e.CanPerformWork(task.type))
+            .Where(e => e.CanPerformWork(order.workType))
             .ToList();
         
-        if (capableWorkers.Count == 0) return null;
+        if (capableWorkers.Count == 0)
+            return null;
         
-        // 점수 기반으로 최적 직원 선택
+        // 가용 작업 대상 중 가장 가까운 곳 찾기
+        var availableTargets = order.GetAvailableTargets();
+        if (availableTargets.Count == 0)
+            return null;
+        
         Employee bestWorker = null;
         float bestScore = float.MinValue;
         
         foreach (var worker in capableWorkers)
         {
-            float score = CalculateWorkerTaskScore(worker, task);
+            // 가장 가까운 작업 대상까지의 거리 계산
+            float minDistance = availableTargets
+                .Min(t => Vector3.Distance(worker.transform.position, t.GetWorkPosition()));
+            
+            float score = CalculateWorkerScore(worker, order, minDistance);
             
             if (score > bestScore)
             {
@@ -245,138 +187,212 @@ public class WorkManager : DestroySingleton<WorkManager>
         return bestWorker;
     }
     
-    private float CalculateWorkerTaskScore(Employee worker, WorkTask task)
+    /// <summary>
+    /// 직원의 작업 적합도 점수를 계산합니다.
+    /// </summary>
+    private float CalculateWorkerScore(Employee worker, WorkOrder order, float distanceToWork)
     {
         float score = 0f;
         
         // 거리 (가까울수록 높은 점수)
-        float distance = Vector3.Distance(worker.transform.position, task.position);
-        score += (50f - distance) * 2f;
+        score += (50f - distanceToWork) * 2f;
         
-        // 작업 속도 (빠를수록 높은 점수)
-        float workSpeed = worker.GetWorkSpeed(task.type);
+        // 작업 속도
+        float workSpeed = worker.GetWorkSpeed(order.workType);
         score += workSpeed * 30f;
         
-        // 직원 상태 (체력, 정신력 고려)
+        // 직원 상태
         float healthRatio = worker.Stats.health / worker.Stats.maxHealth;
         float mentalRatio = worker.Stats.mental / worker.Stats.maxMental;
         score += (healthRatio + mentalRatio) * 10f;
         
-        // 피로도 고려 (피로가 적을수록 높은 점수)
+        // 피로도
         float fatigueRatio = worker.Needs.fatigue / 100f;
         score += fatigueRatio * 20f;
         
         return score;
     }
     
-    private void AssignTaskToEmployee(WorkTask task, Employee employee)
+    /// <summary>
+    /// 직원을 작업물에 할당합니다.
+    /// </summary>
+    private void AssignWorkerToOrder(Employee worker, WorkOrder order)
     {
-        task.assignedWorker = employee;
-        task.startTime = Time.time;
+        // 작업물에 직원 등록
+        if (!order.AssignWorker(worker))
+        {
+            Debug.LogWarning($"[WorkManager] {worker.Data.employeeName}을(를) 작업물 '{order.orderName}'에 할당 실패");
+            return;
+        }
         
-        pendingTasks.Remove(task);
-        activeTasks.Add(task);
-        idleEmployees.Remove(employee);
+        // 매핑 저장
+        employeeToOrderMap[worker] = order;
+        idleEmployees.Remove(worker);
         
-        employee.AssignWork(task.target);
+        // 구체적인 작업 대상 할당
+        AssignSpecificTarget(worker, order);
         
         if (showDebugInfo)
         {
-            Debug.Log($"[WorkManager] {employee.Data.employeeName}에게 {task.type} 작업 할당 " +
-                     $"(위치: {task.position})");
+            Debug.Log($"[WorkManager] {worker.Data.employeeName}을(를) 작업물 '{order.orderName}'에 할당 " +
+                     $"(현재 작업자: {order.assignedWorkers.Count}/{order.maxAssignedWorkers})");
         }
+    }
+    
+    /// <summary>
+    /// 직원에게 구체적인 작업 대상을 할당합니다.
+    /// </summary>
+    private void AssignSpecificTarget(Employee worker, WorkOrder order)
+    {
+        var availableTargets = order.GetAvailableTargets();
+        
+        if (availableTargets.Count == 0)
+        {
+            Debug.LogWarning($"[WorkManager] 작업물 '{order.orderName}'에 가용 작업 대상이 없습니다.");
+            order.UnassignWorker(worker);
+            employeeToOrderMap.Remove(worker);
+            return;
+        }
+        
+        // 가장 가까운 작업 대상 찾기
+        IWorkTarget closestTarget = availableTargets
+            .OrderBy(t => Vector3.Distance(worker.transform.position, t.GetWorkPosition()))
+            .First();
+        
+        // 작업물에 할당 기록
+        order.AssignTargetToWorker(worker, closestTarget);
+        
+        // 직원에게 작업 할당
+        worker.AssignWork(closestTarget);
     }
     
     #endregion
     
     #region 작업 완료 처리
     
-    public void CompleteTask(IWorkTarget target)
+    /// <summary>
+    /// 직원이 작업을 완료했을 때 호출됩니다.
+    /// </summary>
+    public void OnWorkerCompletedTarget(Employee worker, IWorkTarget target)
     {
-        if (!targetToTaskMap.ContainsKey(target)) return;
+        if (!employeeToOrderMap.ContainsKey(worker))
+            return;
         
-        WorkTask task = targetToTaskMap[target];
+        WorkOrder order = employeeToOrderMap[worker];
         
-        if (activeTasks.Contains(task))
-        {
-            activeTasks.Remove(task);
-        }
-        
-        targetToTaskMap.Remove(target);
+        // 작업물에서 해당 대상 완료 처리
+        order.CompleteTarget(target, worker);
         
         if (showDebugInfo)
         {
-            float completionTime = Time.time - task.startTime;
-            Debug.Log($"[WorkManager] 작업 완료: {task.type} " +
-                     $"(소요 시간: {completionTime:F1}초)");
+            Debug.Log($"[WorkManager] {worker.Data.employeeName}이(가) 작업 완료. " +
+                     $"진행률: {order.GetProgress() * 100:F0}%");
         }
         
-        // 작업 마커 제거
-        RemoveWorkMarker(task);
+        // 작업물이 완전히 완료되었는지 확인
+        if (order.IsCompleted())
+        {
+            if (showDebugInfo)
+            {
+                Debug.Log($"[WorkManager] 작업물 '{order.orderName}' 완전 완료!");
+            }
+            
+            employeeToOrderMap.Remove(worker);
+            return;
+        }
+        
+        // 다음 작업 대상 할당
+        AssignSpecificTarget(worker, order);
+    }
+    
+    /// <summary>
+    /// 직원이 작업을 취소했을 때 호출됩니다.
+    /// </summary>
+    public void OnWorkerCancelledWork(Employee worker)
+    {
+        if (!employeeToOrderMap.ContainsKey(worker))
+            return;
+        
+        WorkOrder order = employeeToOrderMap[worker];
+        order.UnassignWorker(worker);
+        employeeToOrderMap.Remove(worker);
+        
+        UpdateIdleEmployees();
+        
+        if (showDebugInfo)
+        {
+            Debug.Log($"[WorkManager] {worker.Data.employeeName}의 작업 취소");
+        }
     }
     
     #endregion
     
     #region 유틸리티
     
-    public IWorkTarget GetAvailableWork(WorkType type, Vector3 position, float radius)
+    /// <summary>
+    /// 특정 작업물의 모든 작업자를 해제합니다.
+    /// </summary>
+    public void UnassignAllWorkersFromOrder(WorkOrder order)
     {
-        var tasksOfType = pendingTasks
-            .Where(t => t.type == type && t.assignedWorker == null)
-            .Where(t => Vector3.Distance(t.position, position) <= radius)
-            .OrderBy(t => t.priority)
-            .ThenBy(t => Vector3.Distance(t.position, position));
+        var workersToRemove = employeeToOrderMap
+            .Where(kvp => kvp.Value == order)
+            .Select(kvp => kvp.Key)
+            .ToList();
         
-        return tasksOfType.FirstOrDefault()?.target;
-    }
-    
-    public List<WorkTask> GetPendingTasksOfType(WorkType type)
-    {
-        return pendingTasks.Where(t => t.type == type).ToList();
-    }
-    
-    public void CancelAllTasksOfType(WorkType type)
-    {
-        var tasksToCancel = pendingTasks.Where(t => t.type == type).ToList();
-        
-        foreach (var task in tasksToCancel)
+        foreach (var worker in workersToRemove)
         {
-            UnregisterWork(task.target);
+            worker.CancelWork();
+            employeeToOrderMap.Remove(worker);
         }
+        
+        order.Cancel();
+        UpdateIdleEmployees();
     }
     
-    private void ShowWorkMarker(WorkTask task)
+    /// <summary>
+    /// 작업 통계를 반환합니다.
+    /// </summary>
+    public WorkStatistics GetStatistics()
     {
-        // 작업 위치에 시각적 마커 표시 (구현 필요)
-        // 예: 작업 타입에 따라 다른 아이콘이나 색상의 마커
-    }
-    
-    private void RemoveWorkMarker(WorkTask task)
-    {
-        // 작업 마커 제거 (구현 필요)
+        return new WorkStatistics
+        {
+            totalEmployees = allEmployees.Count,
+            idleEmployees = idleEmployees.Count,
+            workingEmployees = allEmployees.Count - idleEmployees.Count,
+            activeOrders = orderManager?.ActiveOrderCount ?? 0
+        };
     }
     
     void OnDrawGizmos()
     {
-        if (!showDebugInfo) return;
+        if (!showDebugInfo || orderManager == null)
+            return;
         
-        // 대기 중인 작업 표시
-        Gizmos.color = Color.yellow;
-        foreach (var task in pendingTasks)
-        {
-            Gizmos.DrawWireCube(task.position, Vector3.one * 0.3f);
-        }
+        var activeOrders = orderManager.GetActiveOrders();
         
-        // 진행 중인 작업 표시
-        Gizmos.color = Color.green;
-        foreach (var task in activeTasks)
+        foreach (var order in activeOrders)
         {
-            Gizmos.DrawWireSphere(task.position, 0.4f);
-            
-            // 직원과 작업 연결선
-            if (task.assignedWorker != null)
+            // 작업 대상 표시
+            Gizmos.color = Color.yellow;
+            foreach (var target in order.targets)
             {
-                Gizmos.DrawLine(task.assignedWorker.transform.position, task.position);
+                if (target != null)
+                {
+                    Gizmos.DrawWireCube(target.GetWorkPosition(), Vector3.one * 0.3f);
+                }
+            }
+            
+            // 작업자와 작업 대상 연결선
+            Gizmos.color = Color.green;
+            foreach (var assignment in order.workerAssignments)
+            {
+                if (assignment.Key != null && assignment.Value != null)
+                {
+                    Gizmos.DrawLine(
+                        assignment.Key.transform.position,
+                        assignment.Value.GetWorkPosition()
+                    );
+                }
             }
         }
     }
@@ -386,75 +402,12 @@ public class WorkManager : DestroySingleton<WorkManager>
     // Public 프로퍼티
     public List<Employee> AllEmployees => allEmployees;
     public List<Employee> IdleEmployees => idleEmployees;
-    public int PendingTaskCount => pendingTasks.Count;
-    public int ActiveTaskCount => activeTasks.Count;
-    
-    public WorkStatistics GetStatistics()
-    {
-        return new WorkStatistics
-        {
-            totalEmployees = allEmployees.Count,
-            idleEmployees = idleEmployees.Count,
-            workingEmployees = allEmployees.Count - idleEmployees.Count,
-            pendingTasks = pendingTasks.Count,
-            activeTasks = activeTasks.Count,
-            tasksByType = pendingTasks.GroupBy(t => t.type)
-                .ToDictionary(g => g.Key, g => g.Count())
-        };
-    }
 }
 
-// 작업 우선순위 설정
-[System.Serializable]
-public class WorkPrioritySettings
-{
-    [System.Serializable]
-    public class PriorityEntry
-    {
-        public WorkType workType;
-        [Range(1, 10)]
-        public int priority = 5; // 낮을수록 우선순위 높음
-    }
-    
-    public List<PriorityEntry> priorities = new List<PriorityEntry>
-    {
-        new PriorityEntry { workType = WorkType.Mining, priority = 3 },
-        new PriorityEntry { workType = WorkType.Chopping, priority = 4 },
-        new PriorityEntry { workType = WorkType.Crafting, priority = 2 },
-        new PriorityEntry { workType = WorkType.Research, priority = 2 },
-        new PriorityEntry { workType = WorkType.Gardening, priority = 5 },
-        new PriorityEntry { workType = WorkType.Building, priority = 1 },
-        new PriorityEntry { workType = WorkType.Demolish, priority = 6 },
-        new PriorityEntry { workType = WorkType.Hauling, priority = 7 }
-    };
-    
-    public int GetPriority(WorkType type)
-    {
-        var entry = priorities.FirstOrDefault(p => p.workType == type);
-        return entry?.priority ?? 5;
-    }
-}
-
-// 작업 통계
 public class WorkStatistics
 {
     public int totalEmployees;
     public int idleEmployees;
     public int workingEmployees;
-    public int pendingTasks;
-    public int activeTasks;
-    public Dictionary<WorkType, int> tasksByType;
-}
-
-// 작업 태스크
-[System.Serializable]
-public class WorkTask
-{
-    public IWorkTarget target;
-    public WorkType type;
-    public Vector3 position;
-    public int priority;
-    public float createdTime;
-    public float startTime;
-    public Employee assignedWorker;
+    public int activeOrders;
 }

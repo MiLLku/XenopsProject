@@ -113,4 +113,50 @@ public class GameMap
             Debug.Log(line);
         }
     }
+    /// <summary>
+    /// 사다리 타일인지 확인합니다.
+    /// </summary>
+    public bool IsLadder(int x, int y)
+    {
+        if (!IsInBounds(x, y)) return false;
+        return TileGrid[x, y] == 8; // LADDER_ID
+    }
+
+    /// <summary>
+    /// 사다리를 설치합니다.
+    /// </summary>
+    public void PlaceLadder(int x, int y)
+    {
+        if (!IsInBounds(x, y)) return;
+    
+        // 공기 타일에만 사다리 설치 가능
+        if (TileGrid[x, y] == 0) // AIR_ID
+        {
+            SetTile(x, y, 8); // LADDER_ID
+        }
+    }
+
+    /// <summary>
+    /// 사다리를 제거합니다.
+    /// </summary>
+    public void RemoveLadder(int x, int y)
+    {
+        if (!IsInBounds(x, y)) return;
+    
+        if (IsLadder(x, y))
+        {
+            SetTile(x, y, 0); // AIR_ID
+        }
+    }
+
+    /// <summary>
+    /// 타일이 통과 가능한지 확인합니다 (공기 또는 사다리).
+    /// </summary>
+    public bool IsPassableTile(int x, int y)
+    {
+        if (!IsInBounds(x, y)) return false;
+    
+        int tileId = TileGrid[x, y];
+        return tileId == 0 || tileId == 8; // AIR_ID or LADDER_ID
+    }
 }

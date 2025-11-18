@@ -1,22 +1,39 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
+/// <summary>
+/// 타일 기반 길찾기와 이동을 지원하는 직원 이동 컨트롤러
+/// </summary>
 public class EmployeeMovement : MonoBehaviour
 {
     [Header("이동 설정")]
-    [SerializeField] private float moveSpeed = 3f;
-    [SerializeField] private float stoppingDistance = 0.5f;
-    [SerializeField] private bool usePathfinding = false; // 나중에 A* 추가
+    [SerializeField] private float baseSpeed = 3f;
+    [SerializeField] private float stoppingDistance = 0.1f;
+    [SerializeField] private bool canClimb = true;
+    
+    [Header("타일 이동 설정")]
+    [SerializeField] private TileMovementData movementData;
+    
+    [Header("디버그")]
+    [SerializeField] private bool showPath = true;
+    [SerializeField] private bool showDebugLogs = false;
     
     private Vector3 targetPosition;
     private bool isMoving = false;
     private Action onReachDestination;
     private Coroutine moveCoroutine;
     
+    // 타일 기반 경로
+    private List<Vector2Int> currentPath;
+    private int currentPathIndex = 0;
+    
     // 컴포넌트 참조
     private Rigidbody2D rb;
     private Employee employee;
+    private GameMap gameMap;
+    private TilePathfinder pathfinder;
     
     void Awake()
     {
@@ -29,36 +46,127 @@ public class EmployeeMovement : MonoBehaviour
             rb.bodyType = RigidbodyType2D.Dynamic;
             rb.gravityScale = 0f;
             rb.freezeRotation = true;
+            rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+        }
+        
+        // 기본 이동 데이터 생성
+        if (movementData == null)
+        {
+            movementData = new TileMovementData();
         }
     }
     
-    public void MoveTo(Vector3 destination, Action onComplete = null)
+    void Start()
     {
-        StopMoving();
-        
-        targetPosition = destination;
-        onReachDestination = onComplete;
-        isMoving = true;
-        
-        moveCoroutine = StartCoroutine(MoveCoroutine());
+        // 게임 맵과 길찾기 시스템 초기화
+        if (MapGenerator.instance != null)
+        {
+            gameMap = MapGenerator.instance.GameMapInstance;
+            pathfinder = new TilePathfinder(gameMap, movementData);
+        }
+        else
+        {
+            Debug.LogError("[EmployeeMovement] MapGenerator를 찾을 수 없습니다!");
+        }
     }
     
-    private IEnumerator MoveCoroutine()
+    /// <summary>
+    /// 목표 월드 좌표로 이동합니다 (자동 길찾기).
+    /// </summary>
+    public void MoveTo(Vector3 worldDestination, Action onComplete = null)
     {
-        while (isMoving)
+        if (pathfinder == null)
         {
-            float distance = Vector3.Distance(transform.position, targetPosition);
-            
-            if (distance <= stoppingDistance)
+            Debug.LogError("[EmployeeMovement] Pathfinder가 초기화되지 않았습니다!");
+            return;
+        }
+        
+        StopMoving();
+        
+        // 월드 좌표를 타일 좌표로 변환
+        Vector2Int currentTile = WorldToTile(transform.position);
+        Vector2Int goalTile = WorldToTile(worldDestination);
+        
+        if (showDebugLogs)
+        {
+            Debug.Log($"[EmployeeMovement] 경로 탐색: {currentTile} -> {goalTile}");
+        }
+        
+        // 경로 찾기
+        currentPath = pathfinder.FindPath(currentTile, goalTile, canClimb);
+        
+        if (currentPath == null || currentPath.Count == 0)
+        {
+            if (showDebugLogs)
             {
-                // 목적지 도착
-                ReachDestination();
-                yield break;
+                Debug.LogWarning($"[EmployeeMovement] 경로를 찾을 수 없습니다: {currentTile} -> {goalTile}");
             }
             
-            // 이동
+            // 경로를 찾지 못했을 때도 콜백 호출
+            onComplete?.Invoke();
+            return;
+        }
+        
+        targetPosition = worldDestination;
+        onReachDestination = onComplete;
+        currentPathIndex = 0;
+        isMoving = true;
+        
+        if (showDebugLogs)
+        {
+            Debug.Log($"[EmployeeMovement] 경로 발견: {currentPath.Count}개 타일");
+        }
+        
+        moveCoroutine = StartCoroutine(FollowPathCoroutine());
+    }
+    
+    /// <summary>
+    /// 경로를 따라 이동하는 코루틴
+    /// </summary>
+    private IEnumerator FollowPathCoroutine()
+    {
+        while (isMoving && currentPathIndex < currentPath.Count)
+        {
+            Vector2Int nextTile = currentPath[currentPathIndex];
+            Vector3 nextWorldPos = TileToWorld(nextTile);
+            
+            // 다음 타일까지 이동
+            while (Vector3.Distance(transform.position, nextWorldPos) > stoppingDistance)
+            {
+                // 현재 타일의 이동 속도 배율 가져오기
+                Vector2Int currentTile = WorldToTile(transform.position);
+                int currentTileId = gameMap.TileGrid[currentTile.x, currentTile.y];
+                float speedMultiplier = movementData.GetSpeedMultiplier(currentTileId);
+                
+                // 이동
+                Vector3 direction = (nextWorldPos - transform.position).normalized;
+                float currentSpeed = baseSpeed * speedMultiplier;
+                Vector3 movement = direction * currentSpeed * Time.fixedDeltaTime;
+                
+                if (rb != null)
+                {
+                    rb.MovePosition(transform.position + movement);
+                }
+                else
+                {
+                    transform.position += movement;
+                }
+                
+                // 스프라이트 방향 전환
+                UpdateSpriteDirection(direction.x);
+                
+                yield return new WaitForFixedUpdate();
+            }
+            
+            // 다음 타일로 이동
+            currentPathIndex++;
+        }
+        
+        // 최종 목표 지점까지 이동
+        while (Vector3.Distance(transform.position, targetPosition) > stoppingDistance)
+        {
             Vector3 direction = (targetPosition - transform.position).normalized;
-            Vector3 movement = direction * moveSpeed * Time.fixedDeltaTime;
+            Vector3 movement = direction * baseSpeed * Time.fixedDeltaTime;
             
             if (rb != null)
             {
@@ -69,11 +177,22 @@ public class EmployeeMovement : MonoBehaviour
                 transform.position += movement;
             }
             
-            // 스프라이트 방향 전환
             UpdateSpriteDirection(direction.x);
             
             yield return new WaitForFixedUpdate();
         }
+        
+        // 목적지 도착
+        ReachDestination();
+    }
+    
+    /// <summary>
+    /// 타일 좌표로 직접 이동합니다 (경로 없이).
+    /// </summary>
+    public void MoveToTile(Vector2Int tilePos, Action onComplete = null)
+    {
+        Vector3 worldPos = TileToWorld(tilePos);
+        MoveTo(worldPos, onComplete);
     }
     
     private void UpdateSpriteDirection(float xDirection)
@@ -89,6 +208,13 @@ public class EmployeeMovement : MonoBehaviour
     private void ReachDestination()
     {
         isMoving = false;
+        currentPath = null;
+        currentPathIndex = 0;
+        
+        if (rb != null)
+        {
+            rb.linearVelocity = Vector2.zero;
+        }
         
         if (onReachDestination != null)
         {
@@ -107,6 +233,8 @@ public class EmployeeMovement : MonoBehaviour
         }
         
         isMoving = false;
+        currentPath = null;
+        currentPathIndex = 0;
         onReachDestination = null;
         
         if (rb != null)
@@ -115,31 +243,94 @@ public class EmployeeMovement : MonoBehaviour
         }
     }
     
-    public bool IsMoving => isMoving;
-    public Vector3 TargetPosition => targetPosition;
-    public float DistanceToTarget => Vector3.Distance(transform.position, targetPosition);
+    /// <summary>
+    /// 월드 좌표를 타일 좌표로 변환합니다.
+    /// </summary>
+    private Vector2Int WorldToTile(Vector3 worldPos)
+    {
+        return new Vector2Int(
+            Mathf.FloorToInt(worldPos.x),
+            Mathf.FloorToInt(worldPos.y)
+        );
+    }
     
-    // 장애물 회피 (간단한 버전)
+    /// <summary>
+    /// 타일 좌표를 월드 좌표(타일 중심)로 변환합니다.
+    /// </summary>
+    private Vector3 TileToWorld(Vector2Int tilePos)
+    {
+        return new Vector3(tilePos.x + 0.5f, tilePos.y + 0.5f, 0);
+    }
+    
+    // 장애물 회피
     void OnCollisionEnter2D(Collision2D collision)
     {
         if (isMoving)
         {
-            // 장애물을 만났을 때 우회 경로 계산
-            Vector2 avoidDirection = Vector2.Perpendicular(targetPosition - transform.position).normalized;
-            Vector3 newTarget = transform.position + new Vector3(avoidDirection.x, avoidDirection.y, 0) * 2f;
+            // 충돌 시 경로 재탐색
+            if (showDebugLogs)
+            {
+                Debug.Log($"[EmployeeMovement] 충돌 감지, 경로 재탐색");
+            }
             
-            // 임시 우회점으로 이동
-            StartCoroutine(AvoidObstacle(newTarget));
+            Vector3 currentTarget = targetPosition;
+            Action currentCallback = onReachDestination;
+            
+            StopMoving();
+            MoveTo(currentTarget, currentCallback);
         }
     }
     
-    private IEnumerator AvoidObstacle(Vector3 avoidPoint)
+    // 디버그 시각화
+    void OnDrawGizmos()
     {
-        Vector3 originalTarget = targetPosition;
-        targetPosition = avoidPoint;
+        if (!showPath || currentPath == null || currentPath.Count == 0)
+            return;
         
-        yield return new WaitForSeconds(1f);
+        Gizmos.color = Color.yellow;
         
-        targetPosition = originalTarget;
+        // 현재 위치에서 첫 경로 지점까지
+        Vector3 currentPos = transform.position;
+        if (currentPathIndex < currentPath.Count)
+        {
+            Vector3 firstPathPoint = TileToWorld(currentPath[currentPathIndex]);
+            Gizmos.DrawLine(currentPos, firstPathPoint);
+            currentPos = firstPathPoint;
+        }
+        
+        // 경로 선 그리기
+        for (int i = currentPathIndex; i < currentPath.Count - 1; i++)
+        {
+            Vector3 from = TileToWorld(currentPath[i]);
+            Vector3 to = TileToWorld(currentPath[i + 1]);
+            Gizmos.DrawLine(from, to);
+        }
+        
+        // 경로 지점 표시
+        Gizmos.color = Color.green;
+        foreach (var tile in currentPath)
+        {
+            Vector3 pos = TileToWorld(tile);
+            Gizmos.DrawWireCube(pos, Vector3.one * 0.3f);
+        }
+        
+        // 목표 지점 표시
+        if (currentPath.Count > 0)
+        {
+            Gizmos.color = Color.red;
+            Vector3 goalPos = TileToWorld(currentPath[currentPath.Count - 1]);
+            Gizmos.DrawWireSphere(goalPos, 0.5f);
+        }
+    }
+    
+    // Public 프로퍼티
+    public bool IsMoving => isMoving;
+    public Vector3 TargetPosition => targetPosition;
+    public float DistanceToTarget => Vector3.Distance(transform.position, targetPosition);
+    public List<Vector2Int> CurrentPath => currentPath;
+    public bool CanClimb 
+    { 
+        get => canClimb; 
+        set => canClimb = value; 
     }
 }
