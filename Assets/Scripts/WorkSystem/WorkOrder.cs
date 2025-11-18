@@ -38,7 +38,7 @@ public class WorkOrder
     }
     
     /// <summary>
-    /// 작업 대상을 추가
+    /// 작업 대상을 추가합니다.
     /// </summary>
     public void AddTarget(IWorkTarget target)
     {
@@ -49,7 +49,7 @@ public class WorkOrder
     }
     
     /// <summary>
-    /// 여러 작업 대상을 한번에 추가
+    /// 여러 작업 대상을 한번에 추가합니다.
     /// </summary>
     public void AddTargets(List<IWorkTarget> newTargets)
     {
@@ -60,7 +60,7 @@ public class WorkOrder
     }
     
     /// <summary>
-    /// 작업자를 할당할 수 있는지 확인
+    /// 작업자를 할당할 수 있는지 확인합니다.
     /// </summary>
     public bool CanAssignWorker()
     {
@@ -70,7 +70,7 @@ public class WorkOrder
     }
     
     /// <summary>
-    /// 작업자를 할당
+    /// 작업자를 할당합니다.
     /// </summary>
     public bool AssignWorker(Employee worker)
     {
@@ -82,7 +82,7 @@ public class WorkOrder
     }
     
     /// <summary>
-    /// 작업자 할당을 해제
+    /// 작업자 할당을 해제합니다.
     /// </summary>
     public void UnassignWorker(Employee worker)
     {
@@ -98,7 +98,7 @@ public class WorkOrder
     }
     
     /// <summary>
-    /// 특정 작업자가 작업할 대상을 할당
+    /// 특정 작업자가 작업할 대상을 할당합니다.
     /// </summary>
     public bool AssignTargetToWorker(Employee worker, IWorkTarget target)
     {
@@ -110,7 +110,7 @@ public class WorkOrder
     }
     
     /// <summary>
-    /// 아직 할당되지 않은 작업 대상을 반환
+    /// 아직 할당되지 않은 작업 대상을 반환합니다.
     /// </summary>
     public List<IWorkTarget> GetAvailableTargets()
     {
@@ -121,7 +121,7 @@ public class WorkOrder
     }
     
     /// <summary>
-    /// 특정 작업이 완료되었음을 표시
+    /// 특정 작업이 완료되었음을 표시합니다.
     /// </summary>
     public void CompleteTarget(IWorkTarget target, Employee worker)
     {
@@ -196,5 +196,154 @@ public class WorkOrder
         
         assignedWorkers.Clear();
         workerAssignments.Clear();
+    }
+}
+/// <summary>
+/// 채광 작업 명령
+/// </summary>
+[System.Serializable]
+public class MiningOrder : IWorkTarget
+{
+    public Vector3Int position;
+    public int tileID;
+    public int priority;
+    public bool completed;
+    public Employee assignedWorker;
+    
+    // IWorkTarget 구현
+    public Vector3 GetWorkPosition() => new Vector3(position.x + 0.5f, position.y + 0.5f, 0);
+    public WorkType GetWorkType() => WorkType.Mining;
+    public float GetWorkTime() => 3f;
+    public bool IsWorkAvailable() => !completed;
+    
+    public void CompleteWork(Employee worker)
+    {
+        completed = true;
+        assignedWorker = null;
+        
+        // 실제 채광 실행
+        if (MapGenerator.instance != null)
+        {
+            GameMap gameMap = MapGenerator.instance.GameMapInstance;
+            MapRenderer mapRenderer = MapGenerator.instance.MapRendererInstance;
+            ResourceManager resourceManager = MapGenerator.instance.ResourceManagerInstance;
+            
+            // 드롭 아이템 생성
+            GameObject dropPrefab = resourceManager.GetDropPrefab(tileID);
+            if (dropPrefab != null)
+            {
+                Vector3 dropPos = GetWorkPosition();
+                Object.Instantiate(dropPrefab, dropPos, Quaternion.identity);
+            }
+            
+            // 타일 제거
+            gameMap.SetTile(position.x, position.y, 0);
+            gameMap.UnmarkTileOccupied(position.x, position.y);
+            mapRenderer.UpdateTileVisual(position.x, position.y);
+            
+            Debug.Log($"[MiningOrder] 채광 완료: {position}");
+        }
+    }
+    
+    public void CancelWork(Employee worker)
+    {
+        assignedWorker = null;
+    }
+}
+/// <summary>
+/// 수확 작업 명령 (나무, 식물 등)
+/// </summary>
+[System.Serializable]
+public class HarvestOrder : IWorkTarget
+{
+    public IHarvestable target;
+    public Vector3 position;
+    public int priority;
+    public bool completed;
+    public Employee assignedWorker;
+    
+    // IWorkTarget 구현
+    public Vector3 GetWorkPosition() => position;
+    public WorkType GetWorkType() => target?.GetHarvestType() ?? WorkType.Gardening;
+    public float GetWorkTime() => target?.GetHarvestTime() ?? 2f;
+    public bool IsWorkAvailable() => !completed && target != null && target.CanHarvest();
+    
+    public void CompleteWork(Employee worker)
+    {
+        if (target != null)
+        {
+            target.Harvest();
+        }
+        completed = true;
+        assignedWorker = null;
+    }
+    
+    public void CancelWork(Employee worker)
+    {
+        assignedWorker = null;
+    }
+}
+
+/// <summary>
+/// 철거 작업 명령
+/// </summary>
+[System.Serializable]
+public class DemolishOrder : IWorkTarget
+{
+    public Building building;
+    public Vector3 position;
+    public int priority;
+    public bool completed;
+    public Employee assignedWorker;
+    
+    // IWorkTarget 구현
+    public Vector3 GetWorkPosition() => position;
+    public WorkType GetWorkType() => WorkType.Demolish;
+    public float GetWorkTime() => 5f;
+    public bool IsWorkAvailable() => !completed && building != null;
+    
+    public void CompleteWork(Employee worker)
+    {
+        if (building != null)
+        {
+            // 자원 일부 반환
+            if (InventoryManager.instance != null && building.buildingData != null)
+            {
+                foreach (var cost in building.buildingData.requiredResources)
+                {
+                    int returnAmount = Mathf.Max(1, cost.amount / 2);
+                    InventoryManager.instance.AddItem(cost.item, returnAmount);
+                }
+            }
+            
+            // 점유 해제
+            if (MapGenerator.instance != null)
+            {
+                GameMap gameMap = MapGenerator.instance.GameMapInstance;
+                Vector2Int cellPos = new Vector2Int(
+                    Mathf.FloorToInt(building.transform.position.x),
+                    Mathf.FloorToInt(building.transform.position.y)
+                );
+                
+                for (int y = 0; y < building.buildingData.size.y; y++)
+                {
+                    for (int x = 0; x < building.buildingData.size.x; x++)
+                    {
+                        gameMap.UnmarkTileOccupied(cellPos.x + x, cellPos.y + y);
+                    }
+                }
+            }
+            
+            Object.Destroy(building.gameObject);
+            Debug.Log($"[DemolishOrder] 철거 완료: {building.buildingData.buildingName}");
+        }
+        
+        completed = true;
+        assignedWorker = null;
+    }
+    
+    public void CancelWork(Employee worker)
+    {
+        assignedWorker = null;
     }
 }

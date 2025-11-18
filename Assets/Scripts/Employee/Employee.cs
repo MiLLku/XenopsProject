@@ -63,6 +63,21 @@ public class Employee : MonoBehaviour
         {
             Initialize(employeeData);
         }
+        
+        // WorkManager에 등록
+        if (WorkManager.instance != null)
+        {
+            WorkManager.instance.RegisterEmployee(this);
+        }
+    }
+    
+    void OnDestroy()
+    {
+        // WorkManager에서 제거
+        if (WorkManager.instance != null)
+        {
+            WorkManager.instance.UnregisterEmployee(this);
+        }
     }
     
     void Update()
@@ -75,7 +90,7 @@ public class Employee : MonoBehaviour
         // 상태 체크
         CheckCriticalNeeds();
         
-        // AI 업데이트 (작업 할당)
+        // AI 업데이트 (긴급 욕구만 처리)
         if (aiController != null && currentState == EmployeeState.Idle)
         {
             aiController.UpdateAI(this);
@@ -187,7 +202,7 @@ public class Employee : MonoBehaviour
         else if (currentState == EmployeeState.Resting)
         {
             // 휴식 중일 때 피로 회복
-            currentNeeds.fatigue += 10f * deltaTime; // 회복 속도
+            currentNeeds.fatigue += 10f * deltaTime;
             currentNeeds.fatigue = Mathf.Clamp(currentNeeds.fatigue, 0f, 100f);
         }
         
@@ -290,7 +305,14 @@ public class Employee : MonoBehaviour
     
     public void AssignWork(IWorkTarget target)
     {
-        if (target == null || currentState != EmployeeState.Idle) return;
+        if (target == null || currentState == EmployeeState.Dead || currentState == EmployeeState.MentalBreak) 
+            return;
+        
+        // 현재 작업 취소
+        if (currentWorkTarget != null)
+        {
+            CancelWork();
+        }
         
         currentWorkTarget = target;
         SetState(EmployeeState.Moving);
@@ -306,7 +328,11 @@ public class Employee : MonoBehaviour
     
     private void StartWork(IWorkTarget target)
     {
-        if (target == null || !target.IsWorkAvailable()) return;
+        if (target == null || !target.IsWorkAvailable()) 
+        {
+            CompleteWork();
+            return;
+        }
         
         SetState(EmployeeState.Working);
         currentWork = target.GetWorkType();
@@ -342,6 +368,12 @@ public class Employee : MonoBehaviour
     {
         Debug.Log($"[Employee] {employeeData.employeeName}이(가) {currentWork} 작업을 완료했습니다.");
         
+        // WorkManager에 알림
+        if (WorkManager.instance != null && currentWorkTarget != null)
+        {
+            WorkManager.instance.OnWorkerCompletedTarget(this, currentWorkTarget);
+        }
+        
         currentWorkTarget = null;
         currentWork = WorkType.None;
         workProgress = 0f;
@@ -361,11 +393,24 @@ public class Employee : MonoBehaviour
         if (currentWorkTarget != null)
         {
             currentWorkTarget.CancelWork(this);
+            
+            // WorkManager에 알림
+            if (WorkManager.instance != null)
+            {
+                WorkManager.instance.OnWorkerCancelledWork(this);
+            }
+            
             currentWorkTarget = null;
         }
         
         currentWork = WorkType.None;
         workProgress = 0f;
+        
+        // 이동 중단
+        if (movement != null)
+        {
+            movement.StopMoving();
+        }
         
         SetState(EmployeeState.Idle);
     }
@@ -376,7 +421,12 @@ public class Employee : MonoBehaviour
     
     private void RequestFood()
     {
-        // 음식 찾기 로직 (나중에 구현)
+        // 현재 작업 취소하고 식사
+        if (currentState == EmployeeState.Working)
+        {
+            CancelWork();
+        }
+        
         Debug.Log($"[Employee] {employeeData.employeeName}이(가) 배고픕니다!");
     }
     
@@ -409,7 +459,7 @@ public class Employee : MonoBehaviour
         currentState = newState;
         OnStateChanged?.Invoke(newState);
         
-        // 상태별 시각 효과 (나중에 구현)
+        // 상태별 시각 효과
         UpdateVisualState();
     }
     
@@ -501,28 +551,28 @@ public struct EmployeeStats
 public struct EmployeeNeeds
 {
     [Range(0, 100)]
-    public float hunger;    // 100 = 배부름, 0 = 굶주림
+    public float hunger;
     [Range(0, 100)]
-    public float fatigue;   // 100 = 활력, 0 = 탈진
+    public float fatigue;
 }
 
 [System.Serializable]
 public class WorkPriority
 {
     public WorkType workType;
-    public int priority;     // 낮을수록 우선순위 높음
+    public int priority;
     public bool enabled;
 }
 
 public enum EmployeeState
 {
-    Idle,        // 대기
-    Moving,      // 이동 중
-    Working,     // 작업 중
-    Eating,      // 식사 중
-    Resting,     // 휴식 중
-    MentalBreak, // 정신 붕괴
-    Dead         // 사망
+    Idle,
+    Moving,
+    Working,
+    Eating,
+    Resting,
+    MentalBreak,
+    Dead
 }
 
 // 작업 대상 인터페이스

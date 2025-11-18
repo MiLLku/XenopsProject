@@ -8,10 +8,10 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     // 상호작용 모드 정의
     public enum InteractMode
     {
-        Mine,      // 채광 모드
-        Harvest,   // 벌목/수확 모드
-        Build,     // 건설 모드  
-        Demolish   // 철거 모드
+        Mine,
+        Harvest,
+        Build,
+        Demolish
     }
 
     [Header("필수 연결 (씬)")]
@@ -19,7 +19,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     [SerializeField] private Transform itemDropParent;
     
     [Header("드래그 선택")]
-    [SerializeField] private GameObject selectionBoxPrefab; // 선택 영역 표시용
+    [SerializeField] private GameObject selectionBoxPrefab;
     [SerializeField] private Color miningSelectionColor = new Color(1, 1, 0, 0.3f);
     [SerializeField] private Color harvestSelectionColor = new Color(0, 1, 0, 0.3f);
     [SerializeField] private Color demolishSelectionColor = new Color(1, 0, 0, 0.3f);
@@ -29,15 +29,21 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     [SerializeField] private Color validColor = new Color(0, 1, 0, 0.5f);
     [SerializeField] private Color invalidColor = new Color(1, 0, 0, 0.5f);
     
+    [Header("작업 설정")]
+    [SerializeField] private int defaultMiningWorkers = 3;
+    [SerializeField] private int defaultHarvestWorkers = 2;
+    [SerializeField] private int defaultDemolishWorkers = 1;
+    
     [Header("테스트용")]
     [SerializeField] private BuildingData testBuildingToBuild;
-    [SerializeField] private bool enableCheatKey = true; // 1번 키 치트 활성화
+    [SerializeField] private bool enableCheatKey = true;
 
     // 시스템 참조
     private GameMap _gameMap;
     private MapRenderer _mapRenderer;
     private ResourceManager _resourceManager;
     private CameraController _cameraController;
+    private WorkOrderManager _workOrderManager;
     
     // 모드 관리
     private InteractMode _currentMode = InteractMode.Mine;
@@ -54,12 +60,6 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     private Vector3 _dragEndPos;
     private GameObject _selectionBox;
     private List<GameObject> _selectedObjects = new List<GameObject>();
-    private List<Vector3Int> _selectedTiles = new List<Vector3Int>();
-    
-    // 작업 명령 추적
-    private List<MiningOrder> _miningOrders = new List<MiningOrder>();
-    private List<HarvestOrder> _harvestOrders = new List<HarvestOrder>();
-    private List<DemolishOrder> _demolishOrders = new List<DemolishOrder>();
     
     // 이벤트
     public delegate void ModeChangedDelegate(InteractMode newMode);
@@ -83,6 +83,12 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         _mapRenderer = MapGenerator.instance.MapRendererInstance;
         _resourceManager = MapGenerator.instance.ResourceManagerInstance;
         _cameraController = Camera.main.GetComponent<CameraController>();
+        _workOrderManager = WorkOrderManager.instance;
+        
+        if (_workOrderManager == null)
+        {
+            Debug.LogError("WorkOrderManager를 찾을 수 없습니다!");
+        }
     }
 
     void Update()
@@ -130,7 +136,6 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         }
         else
         {
-            // 기본 선택 박스 생성
             _selectionBox = new GameObject("SelectionBox");
             SpriteRenderer sr = _selectionBox.AddComponent<SpriteRenderer>();
             sr.sprite = CreateWhiteSprite();
@@ -188,7 +193,6 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         Debug.Log($"[Interaction] 모드 변경: {mode}");
         OnModeChanged?.Invoke(mode);
         
-        // 선택 박스 색상 변경
         UpdateSelectionBoxColor();
     }
     
@@ -228,7 +232,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         }
     }
 
-    #region 채광 모드 (Mine Mode)
+    #region 채광 모드
     
     private void HandleMineMode()
     {
@@ -247,7 +251,6 @@ public class InteractionManager : DestroySingleton<InteractionManager>
             CancelDrag();
         }
         
-        // 우클릭으로 취소
         if (Input.GetMouseButtonDown(1))
         {
             CancelDrag();
@@ -279,7 +282,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         
         if (tilesToMine.Count > 0)
         {
-            CreateMiningOrders(tilesToMine);
+            CreateMiningWorkOrder(tilesToMine);
         }
     }
     
@@ -293,45 +296,44 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         return tileID != 0 && tileID != 7;
     }
     
-    private void CreateMiningOrders(List<Vector3Int> tiles)
+    private void CreateMiningWorkOrder(List<Vector3Int> tiles)
     {
+        if (_workOrderManager == null)
+        {
+            Debug.LogError("[Interaction] WorkOrderManager가 없습니다!");
+            return;
+        }
+        
+        // WorkOrder 생성
+        WorkOrder workOrder = _workOrderManager.CreateWorkOrder(
+            $"채광 작업 ({tiles.Count}개 타일)",
+            WorkType.Mining,
+            maxWorkers: defaultMiningWorkers,
+            priority: 3
+        );
+        
+        // 각 타일을 MiningOrder로 변환하여 추가
+        List<IWorkTarget> targets = new List<IWorkTarget>();
         foreach (var tile in tiles)
         {
-            // 이미 명령이 있는지 확인
-            if (_miningOrders.Any(o => o.position == tile && !o.completed)) continue;
-            
-            MiningOrder order = new MiningOrder
+            MiningOrder miningOrder = new MiningOrder
             {
                 position = tile,
                 tileID = _gameMap.TileGrid[tile.x, tile.y],
-                priority = CalculatePriority(tile),
+                priority = 3,
                 completed = false
             };
-            
-            _miningOrders.Add(order);
-            
-            // WorkManager에 작업 등록
-            if (WorkManager.instance != null)
-            {
-                WorkManager.instance.RegisterWork(order);
-            }
-            
-            // 시각적 마커 표시 (선택사항)
-            ShowMiningMarker(tile);
+            targets.Add(miningOrder);
         }
         
-        Debug.Log($"[Interaction] {tiles.Count}개 타일에 채광 명령 추가");
-    }
-    
-    private void ShowMiningMarker(Vector3Int position)
-    {
-        // 채광 예정 타일에 마커 표시 (나중에 구현)
-        // 반투명 X 표시나 테두리 등
+        workOrder.AddTargets(targets);
+        
+        Debug.Log($"[Interaction] 채광 작업물 생성: {tiles.Count}개 타일, 최대 작업자 {defaultMiningWorkers}명");
     }
     
     #endregion
 
-    #region 수확 모드 (Harvest Mode)
+    #region 수확 모드
     
     private void HandleHarvestMode()
     {
@@ -359,10 +361,8 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     
     private void UpdateHarvestSelection()
     {
-        // 범위 내 수확 가능한 오브젝트 하이라이트
         Bounds selectionBounds = GetSelectionBounds();
         
-        // 이전 선택 초기화
         foreach (var obj in _selectedObjects)
         {
             if (obj != null)
@@ -372,7 +372,6 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         }
         _selectedObjects.Clear();
         
-        // 새로운 선택
         Collider2D[] colliders = Physics2D.OverlapBoxAll(
             selectionBounds.center,
             selectionBounds.size,
@@ -392,36 +391,79 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     
     private void FinishHarvestSelection()
     {
+        if (_selectedObjects.Count == 0) return;
+        
+        if (_workOrderManager == null)
+        {
+            Debug.LogError("[Interaction] WorkOrderManager가 없습니다!");
+            return;
+        }
+        
+        // 수확 대상의 작업 타입 결정 (나무면 Chopping, 식물이면 Gardening)
+        WorkType workType = DetermineHarvestWorkType(_selectedObjects[0]);
+        
+        // WorkOrder 생성
+        WorkOrder workOrder = _workOrderManager.CreateWorkOrder(
+            $"{GetWorkTypeName(workType)} 작업 ({_selectedObjects.Count}개)",
+            workType,
+            maxWorkers: defaultHarvestWorkers,
+            priority: 4
+        );
+        
+        // 수확 대상 추가
+        List<IWorkTarget> targets = new List<IWorkTarget>();
         foreach (var obj in _selectedObjects)
         {
             IHarvestable harvestable = obj.GetComponent<IHarvestable>();
             if (harvestable != null && harvestable.CanHarvest())
             {
-                HarvestOrder order = new HarvestOrder
+                HarvestOrder harvestOrder = new HarvestOrder
                 {
                     target = harvestable,
                     position = obj.transform.position,
-                    priority = CalculatePriority(obj.transform.position),
+                    priority = 4,
                     completed = false
                 };
-                
-                _harvestOrders.Add(order);
-                
-                if (WorkManager.instance != null)
-                {
-                    WorkManager.instance.RegisterWork(order);
-                }
+                targets.Add(harvestOrder);
             }
-            
             SetObjectHighlight(obj, false);
         }
         
-        if (_selectedObjects.Count > 0)
-        {
-            Debug.Log($"[Interaction] {_selectedObjects.Count}개 오브젝트에 수확 명령 추가");
-        }
+        workOrder.AddTargets(targets);
+        
+        Debug.Log($"[Interaction] {GetWorkTypeName(workType)} 작업물 생성: {_selectedObjects.Count}개, 최대 작업자 {defaultHarvestWorkers}명");
         
         _selectedObjects.Clear();
+    }
+    
+    private WorkType DetermineHarvestWorkType(GameObject obj)
+    {
+        // 나무인지 확인
+        if (obj.GetComponent<ChoppableTree>() != null)
+        {
+            return WorkType.Chopping;
+        }
+        
+        // 식물인지 확인
+        if (obj.GetComponent<HarvestablePlant>() != null)
+        {
+            return WorkType.Gardening;
+        }
+        
+        // 기본값
+        return WorkType.Gardening;
+    }
+    
+    private string GetWorkTypeName(WorkType type)
+    {
+        switch (type)
+        {
+            case WorkType.Chopping: return "벌목";
+            case WorkType.Gardening: return "수확";
+            case WorkType.Mining: return "채광";
+            case WorkType.Demolish: return "철거";
+            default: return "작업";
+        }
     }
     
     private void SetObjectHighlight(GameObject obj, bool highlight)
@@ -435,7 +477,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     
     #endregion
 
-    #region 건설 모드 (Build Mode)
+    #region 건설 모드
     
     public void EnterBuildMode(BuildingData buildingData)
     {
@@ -576,7 +618,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     
     #endregion
 
-    #region 철거 모드 (Demolish Mode)
+    #region 철거 모드
     
     private void HandleDemolishMode()
     {
@@ -634,34 +676,43 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     
     private void FinishDemolishSelection()
     {
+        if (_selectedObjects.Count == 0) return;
+        
+        if (_workOrderManager == null)
+        {
+            Debug.LogError("[Interaction] WorkOrderManager가 없습니다!");
+            return;
+        }
+        
+        // 각 건물마다 개별 WorkOrder 생성 (철거는 1명만 작업)
         foreach (var obj in _selectedObjects)
         {
             Building building = obj.GetComponent<Building>();
             if (building != null)
             {
-                DemolishOrder order = new DemolishOrder
+                // 개별 철거 작업물 생성
+                WorkOrder workOrder = _workOrderManager.CreateWorkOrder(
+                    $"철거: {building.buildingData.buildingName}",
+                    WorkType.Demolish,
+                    maxWorkers: 1,  // 철거는 1명만
+                    priority: 6
+                );
+                
+                DemolishOrder demolishOrder = new DemolishOrder
                 {
                     building = building,
                     position = obj.transform.position,
-                    priority = CalculatePriority(obj.transform.position),
+                    priority = 6,
                     completed = false
                 };
                 
-                _demolishOrders.Add(order);
-                
-                if (WorkManager.instance != null)
-                {
-                    WorkManager.instance.RegisterWork(order);
-                }
+                workOrder.AddTarget(demolishOrder);
             }
             
             SetObjectHighlight(obj, false);
         }
         
-        if (_selectedObjects.Count > 0)
-        {
-            Debug.Log($"[Interaction] {_selectedObjects.Count}개 건물에 철거 명령 추가");
-        }
+        Debug.Log($"[Interaction] {_selectedObjects.Count}개 건물 철거 명령 생성");
         
         _selectedObjects.Clear();
     }
@@ -724,39 +775,47 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     
     private void ExecuteAllOrdersInstantly()
     {
-        Debug.Log("[CHEAT] 모든 작업 즉시 완료!");
+        Debug.Log("[CHEAT] 모든 작업물 즉시 완료!");
         
-        // 채광 명령 즉시 실행
-        foreach (var order in _miningOrders.ToList())
+        if (_workOrderManager == null)
         {
-            if (!order.completed)
-            {
-                ExecuteMiningInstantly(order);
-            }
+            Debug.LogWarning("[CHEAT] WorkOrderManager가 없습니다!");
+            return;
         }
-        _miningOrders.Clear();
         
-        // 수확 명령 즉시 실행
-        foreach (var order in _harvestOrders.ToList())
-        {
-            if (!order.completed)
-            {
-                order.target.Harvest();
-                order.completed = true;
-            }
-        }
-        _harvestOrders.Clear();
+        var allOrders = _workOrderManager.AllOrders.ToList();
         
-        // 철거 명령 즉시 실행
-        foreach (var order in _demolishOrders.ToList())
+        foreach (var workOrder in allOrders)
         {
-            if (!order.completed && order.building != null)
+            foreach (var target in workOrder.targets.ToList())
             {
-                DemolishBuildingInstantly(order.building);
-                order.completed = true;
+                // 타입별 즉시 실행
+                if (target is MiningOrder miningOrder)
+                {
+                    ExecuteMiningInstantly(miningOrder);
+                }
+                else if (target is HarvestOrder harvestOrder)
+                {
+                    if (harvestOrder.target != null)
+                    {
+                        harvestOrder.target.Harvest();
+                    }
+                }
+                else if (target is DemolishOrder demolishOrder)
+                {
+                    if (demolishOrder.building != null)
+                    {
+                        DemolishBuildingInstantly(demolishOrder.building);
+                    }
+                }
+                
+                workOrder.CompleteTarget(target, null);
             }
+            
+            _workOrderManager.RemoveWorkOrder(workOrder);
         }
-        _demolishOrders.Clear();
+        
+        Debug.Log($"[CHEAT] {allOrders.Count}개 작업물 완료!");
     }
     
     private void ExecuteMiningInstantly(MiningOrder order)
@@ -773,7 +832,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         }
         
         // 타일 제거
-        _gameMap.SetTile(x, y, 0); // AIR_ID
+        _gameMap.SetTile(x, y, 0);
         _gameMap.UnmarkTileOccupied(x, y);
         _mapRenderer.UpdateTileVisual(x, y);
         
@@ -825,112 +884,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     }
     
     #endregion
-    
-    private int CalculatePriority(Vector3Int position)
-    {
-        // 플레이어 또는 중요 지점과의 거리로 우선순위 계산
-        return 1; // 임시
-    }
-    
-    private int CalculatePriority(Vector3 position)
-    {
-        return 1; // 임시
-    }
 }
 
-// 작업 명령 클래스들
-[System.Serializable]
-public class MiningOrder : IWorkTarget
-{
-    public Vector3Int position;
-    public int tileID;
-    public int priority;
-    public bool completed;
-    public Employee assignedWorker;
-    
-    // IWorkTarget 구현
-    public Vector3 GetWorkPosition() => new Vector3(position.x + 0.5f, position.y + 0.5f, 0);
-    public WorkType GetWorkType() => WorkType.Mining;
-    public float GetWorkTime() => 3f; // 기본 채광 시간
-    public bool IsWorkAvailable() => !completed && assignedWorker == null;
-    
-    public void CompleteWork(Employee worker)
-    {
-        if (InteractionManager.instance != null)
-        {
-            // 실제 채광 실행은 InteractionManager가 처리
-            completed = true;
-            assignedWorker = null;
-        }
-    }
-    
-    public void CancelWork(Employee worker)
-    {
-        assignedWorker = null;
-    }
-}
-
-[System.Serializable]
-public class HarvestOrder : IWorkTarget
-{
-    public IHarvestable target;
-    public Vector3 position;
-    public int priority;
-    public bool completed;
-    public Employee assignedWorker;
-    
-    // IWorkTarget 구현
-    public Vector3 GetWorkPosition() => position;
-    public WorkType GetWorkType() => target.GetHarvestType();
-    public float GetWorkTime() => target.GetHarvestTime();
-    public bool IsWorkAvailable() => !completed && target.CanHarvest() && assignedWorker == null;
-    
-    public void CompleteWork(Employee worker)
-    {
-        target.Harvest();
-        completed = true;
-        assignedWorker = null;
-    }
-    
-    public void CancelWork(Employee worker)
-    {
-        assignedWorker = null;
-    }
-}
-
-[System.Serializable]
-public class DemolishOrder : IWorkTarget
-{
-    public Building building;
-    public Vector3 position;
-    public int priority;
-    public bool completed;
-    public Employee assignedWorker;
-    
-    // IWorkTarget 구현
-    public Vector3 GetWorkPosition() => position;
-    public WorkType GetWorkType() => WorkType.Demolish;
-    public float GetWorkTime() => 5f; // 기본 철거 시간
-    public bool IsWorkAvailable() => !completed && building != null && assignedWorker == null;
-    
-    public void CompleteWork(Employee worker)
-    {
-        // 실제 철거는 InteractionManager가 처리
-        completed = true;
-        assignedWorker = null;
-    }
-    
-    public void CancelWork(Employee worker)
-    {
-        assignedWorker = null;
-    }
-}
-
-// 수확 가능한 오브젝트 인터페이스
-public interface IHarvestable
-{
-    bool CanHarvest();
-    void Harvest();
-    float GetHarvestTime();
-    WorkType GetHarvestType();
-}
+// MiningOrder, HarvestOrder, DemolishOrder는 이미 WorkOrder.cs에 정의되어 있으므로
+// 여기서는 제거하고 InteractionManager에서만 사용

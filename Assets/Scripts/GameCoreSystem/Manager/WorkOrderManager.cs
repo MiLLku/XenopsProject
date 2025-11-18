@@ -115,5 +115,3 @@ public class WorkOrderManager : DestroySingleton<WorkOrderManager>
     public List<WorkOrder> AllOrders => allOrders;
     public int ActiveOrderCount => allOrders.Count(o => o.isActive && !o.isPaused);
 }
-
-

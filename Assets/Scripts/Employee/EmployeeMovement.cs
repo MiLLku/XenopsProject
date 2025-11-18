@@ -11,10 +11,6 @@ public class EmployeeMovement : MonoBehaviour
     [Header("이동 설정")]
     [SerializeField] private float baseSpeed = 3f;
     [SerializeField] private float stoppingDistance = 0.1f;
-    [SerializeField] private bool canClimb = true;
-    
-    [Header("타일 이동 설정")]
-    [SerializeField] private TileMovementData movementData;
     
     [Header("디버그")]
     [SerializeField] private bool showPath = true;
@@ -48,12 +44,6 @@ public class EmployeeMovement : MonoBehaviour
             rb.freezeRotation = true;
             rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
         }
-        
-        // 기본 이동 데이터 생성
-        if (movementData == null)
-        {
-            movementData = new TileMovementData();
-        }
     }
     
     void Start()
@@ -62,7 +52,7 @@ public class EmployeeMovement : MonoBehaviour
         if (MapGenerator.instance != null)
         {
             gameMap = MapGenerator.instance.GameMapInstance;
-            pathfinder = new TilePathfinder(gameMap, movementData);
+            pathfinder = new TilePathfinder(gameMap);
         }
         else
         {
@@ -93,7 +83,7 @@ public class EmployeeMovement : MonoBehaviour
         }
         
         // 경로 찾기
-        currentPath = pathfinder.FindPath(currentTile, goalTile, canClimb);
+        currentPath = pathfinder.FindPath(currentTile, goalTile);
         
         if (currentPath == null || currentPath.Count == 0)
         {
@@ -133,10 +123,8 @@ public class EmployeeMovement : MonoBehaviour
             // 다음 타일까지 이동
             while (Vector3.Distance(transform.position, nextWorldPos) > stoppingDistance)
             {
-                // 현재 타일의 이동 속도 배율 가져오기
-                Vector2Int currentTile = WorldToTile(transform.position);
-                int currentTileId = gameMap.TileGrid[currentTile.x, currentTile.y];
-                float speedMultiplier = movementData.GetSpeedMultiplier(currentTileId);
+                // 현재 위치의 이동 속도 배율 가져오기
+                float speedMultiplier = GetCurrentSpeedMultiplier();
                 
                 // 이동
                 Vector3 direction = (nextWorldPos - transform.position).normalized;
@@ -184,6 +172,24 @@ public class EmployeeMovement : MonoBehaviour
         
         // 목적지 도착
         ReachDestination();
+    }
+    
+    /// <summary>
+    /// 현재 위치의 이동 속도 배율을 가져옵니다.
+    /// </summary>
+    private float GetCurrentSpeedMultiplier()
+    {
+        Vector2Int currentTile = WorldToTile(transform.position);
+        
+        // 바닥 타일이 있는지 확인
+        FloorTile floorTile = FloorTile.GetFloorTileAt(currentTile);
+        if (floorTile != null)
+        {
+            return floorTile.GetMovementSpeedMultiplier();
+        }
+        
+        // 바닥 타일이 없으면 기본 속도
+        return 1f;
     }
     
     /// <summary>
@@ -328,9 +334,4 @@ public class EmployeeMovement : MonoBehaviour
     public Vector3 TargetPosition => targetPosition;
     public float DistanceToTarget => Vector3.Distance(transform.position, targetPosition);
     public List<Vector2Int> CurrentPath => currentPath;
-    public bool CanClimb 
-    { 
-        get => canClimb; 
-        set => canClimb = value; 
-    }
 }
