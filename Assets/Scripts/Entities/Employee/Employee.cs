@@ -537,32 +537,11 @@ public class Employee : MonoBehaviour
 }
 
 // 데이터 구조체들
-[System.Serializable]
-public struct EmployeeStats
-{
-    public float health;
-    public float maxHealth;
-    public float mental;
-    public float maxMental;
-    public int attackPower;
-}
 
-[System.Serializable]
-public struct EmployeeNeeds
-{
-    [Range(0, 100)]
-    public float hunger;
-    [Range(0, 100)]
-    public float fatigue;
-}
 
-[System.Serializable]
-public class WorkPriority
-{
-    public WorkType workType;
-    public int priority;
-    public bool enabled;
-}
+
+
+
 
 public enum EmployeeState
 {

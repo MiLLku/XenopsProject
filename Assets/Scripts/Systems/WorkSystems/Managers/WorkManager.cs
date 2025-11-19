@@ -437,10 +437,3 @@ public class WorkManager : DestroySingleton<WorkManager>
     public List<Employee> IdleEmployees => idleEmployees;
 }
 
-public class WorkStatistics
-{
-    public int totalEmployees;
-    public int idleEmployees;
-    public int workingEmployees;
-    public int activeOrders;
-}
