@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 
-
+[System.Serializable]
 [CreateAssetMenu(fileName = "NewBuildingData", menuName = "StampSystem/Building Data")]
 public class BuildingData : ScriptableObject
 {

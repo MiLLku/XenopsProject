@@ -24,6 +24,7 @@ public class WorkManager : DestroySingleton<WorkManager>
         base.Awake();
     }
     
+
     void Start()
     {
         orderManager = WorkOrderManager.instance;
@@ -31,14 +32,46 @@ public class WorkManager : DestroySingleton<WorkManager>
         {
             Debug.LogError("[WorkManager] WorkOrderManager를 찾을 수 없습니다!");
         }
+    
+        // ★★★ EmployeeManager 연동 ★★★
+        if (EmployeeManager.instance != null)
+        {
+            // 이미 생성된 직원들 등록
+            foreach (var employee in EmployeeManager.instance.AllEmployees)
+            {
+                RegisterEmployee(employee);
+            }
         
-        RefreshEmployeeList();
+            // 새로 생성되는 직원 자동 등록
+            EmployeeManager.instance.OnEmployeeSpawned += RegisterEmployee;
+            EmployeeManager.instance.OnEmployeeRemoved += UnregisterEmployee;
+        
+            Debug.Log($"[WorkManager] EmployeeManager와 연동 완료. " +
+                      $"현재 직원: {EmployeeManager.instance.EmployeeCount}명");
+        }
+        else
+        {
+            Debug.LogWarning("[WorkManager] EmployeeManager를 찾을 수 없습니다. " +
+                             "직원 자동 등록이 비활성화됩니다.");
+        }
+    
+        // ★★★ 기존 RefreshEmployeeList() 호출 제거 ★★★
+        // RefreshEmployeeList();
+    
         InvokeRepeating(nameof(ProcessWorkAssignment), 1f, 0.5f);
     }
+
     
     void OnDestroy()
     {
         CancelInvoke();
+    
+        // ★★★ 이벤트 구독 해제 ★★★
+        if (EmployeeManager.instance != null)
+        {
+            EmployeeManager.instance.OnEmployeeSpawned -= RegisterEmployee;
+            EmployeeManager.instance.OnEmployeeRemoved -= UnregisterEmployee;
+        }
     }
     
     #region 직원 관리

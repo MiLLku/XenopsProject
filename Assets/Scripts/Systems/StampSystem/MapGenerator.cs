@@ -205,7 +205,7 @@ public class MapGenerator : DestroySingleton<MapGenerator>
 
     #region 구조물 (Structures)
     
-    // ★★★ [수정된 부분 1: 스폰 지점] ★★★
+ 
     private void PlaceSpawnPackage(int[] groundHeightMap)
     {
         StampData chestStamp = stampLibrary.GetStamp(spawnChestKey);
@@ -222,39 +222,49 @@ public class MapGenerator : DestroySingleton<MapGenerator>
 
         for (int x = startX; x < endX; x++)
         {
-            // 1. 타일 ID를 PROCESSED_DIRT_ID (7)로 변경
             _gameMap.SetTile(x, groundSurfaceY, PROCESSED_DIRT_ID); 
-            // 2. ★논리 그리드도 점유 상태로 마킹★
             _gameMap.MarkTileOccupied(x, groundSurfaceY); 
-
             _gameMap.SetTile(x, groundSurfaceY + 1, AIR_ID);
             _gameMap.SetTile(x, groundSurfaceY + 2, AIR_ID);
             _gameMap.SetTile(x, groundSurfaceY + 3, AIR_ID);
         }
+    
         Vector2Int chestSpawnPos = new Vector2Int(startX + 1, groundSurfaceY + 1);
         _stamper.PlaceStamp(spawnChestKey, chestSpawnPos);
-        
-        // 3. ★상자가 차지하는 공간도 점유 마킹★ (3x2 크기)
+    
         Vector2Int chestPivot = chestStamp.pivot;
         foreach(var element in chestStamp.elements)
         {
-            // 상자 프리팹이 차지하는 3x2 공간의 '바닥 타일'을 점유 마킹
-            int occupyX = chestSpawnPos.x + element.position.x - chestPivot.x;
-            int occupyY = chestSpawnPos.y + element.position.y - chestPivot.y;
-            
-            // (이 예제는 1x1 프리팹 기준이지만, 3x2 프리팹이라면 그 바닥 3칸을 모두 마킹해야 합니다)
-            // (일단 상자 스탬프의 (0,0) 위치만 마킹)
-            // (상자 피벗이 (0,0)이고 스폰위치가 (99, 141)이면, (99, 141)을 점유)
-            // (이것은 타일이 아닌 '공간'을 점유하는 것이므로 별도 로직이 필요할 수 있음)
-            // (지금은 프리팹이 서 있는 '바닥'만 점유 마킹합니다)
             _gameMap.MarkTileOccupied(startX + 1, groundSurfaceY);
             _gameMap.MarkTileOccupied(startX + 2, groundSurfaceY);
             _gameMap.MarkTileOccupied(startX + 3, groundSurfaceY);
         }
 
         Debug.Log($"[PlaceSpawnPackage] '{spawnChestKey}' 스탬프 배치 완료.");
+    
+        // ★★★ 직원 스폰 로직 변경 ★★★
+        SetupEmployeeSpawn(startX + 5, groundSurfaceY + 1);
     }
 
+    /// <summary>
+    /// EmployeeManager에 스폰 지점을 알려줍니다
+    /// </summary>
+    private void SetupEmployeeSpawn(int x, int y)
+    {
+        if (EmployeeManager.instance == null)
+        {
+            Debug.LogError("[MapGenerator] EmployeeManager를 찾을 수 없습니다!");
+            return;
+        }
+    
+        Vector3 spawnPoint = new Vector3(x + 0.5f, y, 0);
+        EmployeeManager.instance.SetSpawnPoint(spawnPoint);
+    
+        // 초기 직원들 스폰
+        EmployeeManager.instance.SpawnInitialEmployees();
+    
+        Debug.Log($"[MapGenerator] 직원 스폰 지점 설정 완료: {spawnPoint}");
+    }
     #endregion
     
     #region 식물 (Vegetation)
@@ -339,4 +349,5 @@ public class MapGenerator : DestroySingleton<MapGenerator>
     }
 
     #endregion
+
 }
