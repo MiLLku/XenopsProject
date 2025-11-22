@@ -514,11 +514,20 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     
     private bool CanMineTile(int x, int y)
     {
+        // 1. 맵 범위 체크
         if (x < 0 || x >= GameMap.MAP_WIDTH || y < 0 || y >= GameMap.MAP_HEIGHT) return false;
         
+        // 2. 타일 존재 여부 (공기나 이미 가공된 타일 제외)
         int tileID = _gameMap.TileGrid[x, y];
+        if (tileID == 0 || tileID == 7) return false;
+
+        // 3. ★★★ [추가됨] 이미 작업 예약된 타일인지 확인 ★★★
+        if (_workOrderManager != null && _workOrderManager.IsTileUnderWork(new Vector3Int(x, y, 0)))
+        {
+            return false; 
+        }
         
-        return tileID != 0 && tileID != 7;
+        return true;
     }
     
     private void CreateMiningWorkOrder(List<Vector3Int> tiles)

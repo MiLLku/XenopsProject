@@ -94,6 +94,29 @@ public class WorkOrderManager : DestroySingleton<WorkOrderManager>
     }
     
     /// <summary>
+    /// 특정 좌표가 현재 진행 중인 작업에 포함되어 있는지 확인합니다.
+    /// </summary>
+    public bool IsTileUnderWork(Vector3Int tilePos)
+    {
+        // 활성화된 모든 작업물을 순회
+        foreach (var order in allOrders)
+        {
+            if (!order.isActive || order.IsCompleted()) continue;
+
+            // 채광 작업의 경우 위치 확인
+            foreach (var target in order.targets)
+            {
+                if (target is MiningOrder miningOrder)
+                {
+                    if (miningOrder.position == tilePos) return true;
+                }
+                // 수확/철거 등 다른 작업 타입에 대한 위치 체크도 필요시 추가
+            }
+        }
+        return false;
+    }
+    
+    /// <summary>
     /// 작업물을 삭제합니다.
     /// </summary>
     public void RemoveWorkOrder(WorkOrder order)

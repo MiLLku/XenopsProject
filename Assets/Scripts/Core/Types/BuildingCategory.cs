@@ -1,6 +1,5 @@
 using UnityEngine;
 
-// 빌드 메뉴에서 카테고리를 나누기 위한 Enum (추천)
 public enum BuildingCategory
 {
     Storage,      // 보관 (상자)

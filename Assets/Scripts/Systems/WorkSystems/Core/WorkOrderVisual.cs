@@ -2,18 +2,15 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
 
-/// <summary>
-/// 작업 더미(WorkOrder)를 시각적으로 표현하고 플레이어가 클릭할 수 있게 만드는 컴포넌트
-/// </summary>
+[RequireComponent(typeof(LineRenderer))]
 public class WorkOrderVisual : MonoBehaviour
 {
     [Header("작업 더미 정보")]
     [SerializeField] private WorkOrder workOrder;
-    [SerializeField] private List<Vector3Int> tilePosisitons = new List<Vector3Int>();
+    [SerializeField] private List<Vector3Int> tilePositions = new List<Vector3Int>(); // 오타 수정 tilePosisitons -> tilePositions
     
     [Header("시각적 표현")]
     [SerializeField] private Color normalColor = new Color(1f, 0.8f, 0.3f, 0.7f);
-    [SerializeField] private Color hoverColor = new Color(1f, 1f, 0.5f, 0.9f);
     [SerializeField] private Color selectedColor = new Color(0.3f, 1f, 0.3f, 0.9f);
     
     [Header("UI 표시")]
@@ -21,186 +18,171 @@ public class WorkOrderVisual : MonoBehaviour
     private GameObject labelInstance;
     private TMPro.TextMeshProUGUI labelText;
     
-    private bool isHovered = false;
     private bool isSelected = false;
-    private TileHighlighter tileHighlighter;
+    private LineRenderer lineRenderer; // TileHighlighter 대신 LineRenderer 사용 권장 (이전 코드 기반)
     private BoxCollider2D boxCollider;
-    
+
+    public WorkOrder WorkOrder => workOrder;
+
     void Awake()
     {
-        boxCollider = gameObject.AddComponent<BoxCollider2D>();
+        // 라인 렌더러가 없다면 추가
+        lineRenderer = GetComponent<LineRenderer>();
+        if (lineRenderer == null) lineRenderer = gameObject.AddComponent<LineRenderer>();
+        
+        boxCollider = GetComponent<BoxCollider2D>();
+        if (boxCollider == null) boxCollider = gameObject.AddComponent<BoxCollider2D>();
         boxCollider.isTrigger = true;
     }
-    
-    void Start()
-    {
-        tileHighlighter = TileHighlighter.instance;
-        
-        if (tileHighlighter != null && tilePosisitons.Count > 0)
-        {
-            UpdateVisual();
-            UpdateCollider();
-        }
-        
-        CreateLabel();
-    }
-    
-    void Update()
-    {
-        // 작업 완료 확인
-        if (workOrder != null && workOrder.IsCompleted())
-        {
-            Destroy(gameObject);
-        }
-        
-        // 라벨 업데이트
-        UpdateLabel();
-    }
-    
+
     public void Initialize(WorkOrder order, List<Vector3Int> tiles)
     {
         workOrder = order;
-        tilePosisitons = new List<Vector3Int>(tiles);
+        tilePositions = new List<Vector3Int>(tiles);
+
+        // 1. 외곽선 그리기
+        DrawOutline();
         
-        if (tileHighlighter != null)
-        {
-            UpdateVisual();
-            UpdateCollider();
-        }
+        // 2. 클릭 영역(콜라이더) 만들기
+        UpdateCollider();
+        
+        // 3. 라벨(텍스트) 달기
+        CreateLabel();
     }
-    
-    private void UpdateVisual()
+
+    void Update()
     {
-        Color color = isSelected ? selectedColor : (isHovered ? hoverColor : normalColor);
-        
-        if (tileHighlighter != null)
+        if (workOrder == null || workOrder.IsCompleted() || !workOrder.isActive)
         {
-            tileHighlighter.AddAssignedTiles(tilePosisitons, color);
+            Destroy(gameObject);
+            return;
         }
+
+        // 선택 상태에 따라 색상 변경
+        Color targetColor = isSelected ? selectedColor : normalColor;
+        lineRenderer.startColor = targetColor;
+        lineRenderer.endColor = targetColor;
+
+        UpdateLabel();
     }
-    
+
+    private void DrawOutline()
+    {
+        if (tilePositions == null || tilePositions.Count == 0) return;
+
+        List<Vector3> linePoints = new List<Vector3>();
+        HashSet<Vector3Int> tileSet = new HashSet<Vector3Int>(tilePositions);
+
+        // 상하좌우 체크용 오프셋
+        Vector3Int[] directions = { Vector3Int.up, Vector3Int.right, Vector3Int.down, Vector3Int.left };
+        
+        // 각 방향별 선분 그리기 오프셋 (타일 중심 기준)
+        Vector3[] lineOffsets = { 
+            new Vector3(-0.5f, 0.5f), new Vector3(0.5f, 0.5f),   // Top
+            new Vector3(0.5f, 0.5f), new Vector3(0.5f, -0.5f),   // Right
+            new Vector3(0.5f, -0.5f), new Vector3(-0.5f, -0.5f), // Bottom
+            new Vector3(-0.5f, -0.5f), new Vector3(-0.5f, 0.5f)  // Left
+        };
+
+        // 모든 타일을 순회하며 외곽선(이웃이 없는 변)을 찾음
+        foreach (var tile in tilePositions)
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                if (!tileSet.Contains(tile + directions[i]))
+                {
+                    Vector3 center = new Vector3(tile.x + 0.5f, tile.y + 0.5f, 0);
+                    // 월드 좌표를 로컬 좌표로 변환하여 추가
+                    linePoints.Add(center + lineOffsets[i * 2] - transform.position);
+                    linePoints.Add(center + lineOffsets[i * 2 + 1] - transform.position);
+                }
+            }
+        }
+
+        lineRenderer.positionCount = linePoints.Count;
+        lineRenderer.SetPositions(linePoints.ToArray());
+        lineRenderer.loop = false; // 세그먼트 단위로 끊어서 그리므로 loop는 false
+    }
+
     private void UpdateCollider()
     {
-        if (tilePosisitons.Count == 0) return;
+        // 기존 콜라이더가 있으면 제거 (안전장치)
+        if(boxCollider != null) Destroy(boxCollider);
         
-        // 타일들의 범위 계산
-        int minX = tilePosisitons.Min(t => t.x);
-        int maxX = tilePosisitons.Max(t => t.x);
-        int minY = tilePosisitons.Min(t => t.y);
-        int maxY = tilePosisitons.Max(t => t.y);
-        
-        // 콜라이더 중심과 크기 설정
-        Vector2 center = new Vector2(
-            (minX + maxX) / 2f + 0.5f,
-            (minY + maxY) / 2f + 0.5f
-        );
-        
-        Vector2 size = new Vector2(
-            maxX - minX + 1f,
-            maxY - minY + 1f
-        );
-        
+        boxCollider = gameObject.AddComponent<BoxCollider2D>();
+        boxCollider.isTrigger = true; // 트리거로 설정하여 물리 충돌은 무시하고 클릭만 감지
+
+        if (tilePositions.Count == 0) return;
+
+        int minX = tilePositions.Min(t => t.x);
+        int maxX = tilePositions.Max(t => t.x);
+        int minY = tilePositions.Min(t => t.y);
+        int maxY = tilePositions.Max(t => t.y);
+
+        // 타일 뭉치의 정중앙과 크기 계산
+        Vector2 center = new Vector2((minX + maxX) / 2f + 0.5f, (minY + maxY) / 2f + 0.5f);
+        Vector2 size = new Vector2(maxX - minX + 1, maxY - minY + 1);
+
+        // 로컬 좌표로 변환하여 설정
         boxCollider.offset = center - (Vector2)transform.position;
         boxCollider.size = size;
     }
-    
+
     private void CreateLabel()
     {
-        if (labelPrefab == null || workOrder == null) return;
-        
-        // 라벨 생성
-        labelInstance = Instantiate(labelPrefab, transform);
-        labelText = labelInstance.GetComponentInChildren<TMPro.TextMeshProUGUI>();
-        
-        // 라벨 위치 설정 (작업 더미 중앙 위쪽)
-        if (tilePosisitons.Count > 0)
+        if (labelPrefab != null)
         {
-            int minX = tilePosisitons.Min(t => t.x);
-            int maxX = tilePosisitons.Max(t => t.x);
-            int maxY = tilePosisitons.Max(t => t.y);
+            labelInstance = Instantiate(labelPrefab, transform);
+            labelText = labelInstance.GetComponentInChildren<TMPro.TextMeshProUGUI>();
             
-            Vector3 labelPos = new Vector3(
-                (minX + maxX) / 2f + 0.5f,
-                maxY + 1.5f,
-                0
-            );
-            
-            labelInstance.transform.position = labelPos;
-        }
-    }
-    
-    private void UpdateLabel()
-    {
-        if (labelText == null || workOrder == null) return;
-        
-        int completed = workOrder.completedTargets.Count;
-        int total = workOrder.targets.Count + completed;
-        int workers = workOrder.assignedWorkers.Count;
-        
-        labelText.text = $"{workOrder.orderName}\n{completed}/{total} (작업자: {workers})";
-    }
-    
-    void OnMouseEnter()
-    {
-        if (InteractionManager.instance != null && 
-            InteractionManager.instance.GetCurrentMode() == InteractionManager.InteractMode.Normal)
-        {
-            isHovered = true;
-            UpdateVisual();
-        }
-    }
-    
-    void OnMouseExit()
-    {
-        isHovered = false;
-        UpdateVisual();
-    }
-    
-    void OnMouseDown()
-    {
-        if (InteractionManager.instance != null && 
-            InteractionManager.instance.GetCurrentMode() == InteractionManager.InteractMode.Normal)
-        {
-            OnWorkOrderClicked();
-        }
-    }
-    
-    private void OnWorkOrderClicked()
-    {
-        Debug.Log($"[WorkOrderVisual] 작업 더미 클릭: {workOrder.orderName}");
-        
-        // 작업 할당 UI 열기 (나중에 구현)
-        if (WorkAssignmentUI.instance != null)
-        {
-            WorkAssignmentUI.instance.OpenAssignmentUI(workOrder);
-        }
-        else
-        {
-            Debug.Log($"작업: {workOrder.GetDebugInfo()}");
-        }
-        
-        isSelected = !isSelected;
-        UpdateVisual();
-    }
-    
-    void OnDestroy()
-    {
-        // 하이라이트 제거
-        if (tileHighlighter != null && tilePosisitons != null)
-        {
-            foreach (var tile in tilePosisitons)
+            if(tilePositions.Count > 0)
             {
-                tileHighlighter.RemoveAssignedTile(tile);
+                 // 라벨 위치를 작업 더미의 가장 위쪽 중앙에 배치
+                 int maxY = tilePositions.Max(t => t.y);
+                 int minX = tilePositions.Min(t => t.x);
+                 int maxX = tilePositions.Max(t => t.x);
+                 
+                 // 부모(Visual)의 위치를 고려한 월드 좌표 계산
+                 float midX = (minX + maxX) / 2f; 
+                 
+                 // Visual 오브젝트가 (0,0,0)이 아닌 경우를 대비해 로컬 좌표로 설정하는 것이 안전함
+                 labelInstance.transform.position = new Vector3(midX + 0.5f, maxY + 1.2f, 0);
             }
         }
-        
-        if (labelInstance != null)
+    }
+
+    private void UpdateLabel()
+    {
+        if (labelText != null && workOrder != null)
         {
-            Destroy(labelInstance);
+            int assigned = workOrder.assignedWorkers.Count;
+            int max = workOrder.maxAssignedWorkers;
+            labelText.text = $"{assigned}/{max}"; 
+        }
+    }
+
+    void OnMouseDown()
+    {
+        // 일반 모드에서만 클릭 가능
+        if (InteractionManager.instance.GetCurrentMode() == InteractionManager.InteractMode.Normal)
+        {
+            Debug.Log($"[Visual] 작업 더미 클릭됨: {workOrder.orderName}");
+
+            // ★★★ [수정됨] WorkAssignmentManager 호출 ★★★
+            if (WorkAssignmentManager.instance != null)
+            {
+                isSelected = true;
+                WorkAssignmentManager.instance.ShowAssignmentUI(workOrder, this, Input.mousePosition);
+            }
+            else
+            {
+                Debug.LogError("WorkAssignmentManager가 씬에 없습니다!");
+            }
         }
     }
     
-    // Public 프로퍼티
-    public WorkOrder WorkOrder => workOrder;
-    public List<Vector3Int> TilePositions => tilePosisitons;
+    public void Deselect()
+    {
+        isSelected = false;
+    }
 }
