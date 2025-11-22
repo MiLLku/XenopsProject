@@ -28,6 +28,7 @@ public class Employee : MonoBehaviour
     
     // 작업 관련
     private IWorkTarget currentWorkTarget;
+    private WorkOrder currentWorkOrder; // 현재 할당된 작업물
     private float workProgress = 0f;
     private Coroutine currentWorkCoroutine;
     
@@ -90,12 +91,6 @@ public class Employee : MonoBehaviour
         // 상태 체크
         CheckCriticalNeeds();
         
-        // AI 업데이트 (긴급 욕구만 처리)
-        if (aiController != null && currentState == EmployeeState.Idle)
-        {
-            aiController.UpdateAI(this);
-        }
-        
         // 디버그 표시
         if (showDebugInfo)
         {
@@ -144,7 +139,9 @@ public class Employee : MonoBehaviour
             new WorkPriority { workType = WorkType.Crafting, priority = 3, enabled = true },
             new WorkPriority { workType = WorkType.Research, priority = 4, enabled = true },
             new WorkPriority { workType = WorkType.Gardening, priority = 5, enabled = true },
-            new WorkPriority { workType = WorkType.Hauling, priority = 6, enabled = true }
+            new WorkPriority { workType = WorkType.Hauling, priority = 6, enabled = true },
+            new WorkPriority { workType = WorkType.Building, priority = 7, enabled = true },
+            new WorkPriority { workType = WorkType.Demolish, priority = 8, enabled = true }
         };
     }
     
@@ -262,6 +259,11 @@ public class Employee : MonoBehaviour
     public bool CanPerformWork(WorkType type)
     {
         if (employeeData == null || employeeData.abilities == null) return false;
+        
+        // 우선순위에서 비활성화된 작업은 불가
+        var priority = workPriorities.FirstOrDefault(w => w.workType == type);
+        if (priority != null && !priority.enabled) return false;
+        
         return employeeData.abilities.CanPerformWork(type);
     }
     
@@ -303,9 +305,13 @@ public class Employee : MonoBehaviour
         return 1f;
     }
     
-    public void AssignWork(IWorkTarget target)
+    /// <summary>
+    /// WorkManager로부터 작업물과 구체적인 작업 대상을 할당받습니다.
+    /// </summary>
+    public void AssignWork(WorkOrder workOrder, IWorkTarget target)
     {
-        if (target == null || currentState == EmployeeState.Dead || currentState == EmployeeState.MentalBreak) 
+        if (target == null || workOrder == null || 
+            currentState == EmployeeState.Dead || currentState == EmployeeState.MentalBreak) 
             return;
         
         // 현재 작업 취소
@@ -314,8 +320,14 @@ public class Employee : MonoBehaviour
             CancelWork();
         }
         
+        currentWorkOrder = workOrder;
         currentWorkTarget = target;
         SetState(EmployeeState.Moving);
+        
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] {employeeData.employeeName}에게 작업 할당: {target.GetWorkType()} at {target.GetWorkPosition()}");
+        }
         
         // 작업 위치로 이동
         if (movement != null)
@@ -323,6 +335,11 @@ public class Employee : MonoBehaviour
             movement.MoveTo(target.GetWorkPosition(), () => {
                 StartWork(target);
             });
+        }
+        else
+        {
+            // movement가 없으면 즉시 작업 시작 (테스트용)
+            StartWork(target);
         }
     }
     
@@ -338,6 +355,12 @@ public class Employee : MonoBehaviour
         currentWork = target.GetWorkType();
         
         float workTime = target.GetWorkTime() / GetWorkSpeed(currentWork);
+        
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] {employeeData.employeeName} 작업 시작: {currentWork}, 예상 시간: {workTime:F1}초");
+        }
+        
         currentWorkCoroutine = StartCoroutine(PerformWork(target, workTime));
     }
     
@@ -352,6 +375,10 @@ public class Employee : MonoBehaviour
             // 작업 중단 체크
             if (currentState != EmployeeState.Working || !target.IsWorkAvailable())
             {
+                if (showDebugInfo)
+                {
+                    Debug.Log($"[Employee] {employeeData.employeeName} 작업 중단됨");
+                }
                 CancelWork();
                 yield break;
             }
@@ -366,15 +393,19 @@ public class Employee : MonoBehaviour
     
     private void CompleteWork()
     {
-        Debug.Log($"[Employee] {employeeData.employeeName}이(가) {currentWork} 작업을 완료했습니다.");
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] {employeeData.employeeName}이(가) {currentWork} 작업을 완료했습니다.");
+        }
         
         // WorkManager에 알림
-        if (WorkManager.instance != null && currentWorkTarget != null)
+        if (WorkManager.instance != null && currentWorkTarget != null && currentWorkOrder != null)
         {
-            WorkManager.instance.OnWorkerCompletedTarget(this, currentWorkTarget);
+            WorkManager.instance.OnWorkerCompletedTarget(this, currentWorkTarget, currentWorkOrder);
         }
         
         currentWorkTarget = null;
+        currentWorkOrder = null;
         currentWork = WorkType.None;
         workProgress = 0f;
         currentWorkCoroutine = null;
@@ -401,6 +432,7 @@ public class Employee : MonoBehaviour
             }
             
             currentWorkTarget = null;
+            currentWorkOrder = null;
         }
         
         currentWork = WorkType.None;
@@ -427,7 +459,10 @@ public class Employee : MonoBehaviour
             CancelWork();
         }
         
-        Debug.Log($"[Employee] {employeeData.employeeName}이(가) 배고픕니다!");
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] {employeeData.employeeName}이(가) 배고픕니다!");
+        }
     }
     
     private void RequestRest()
@@ -438,14 +473,22 @@ public class Employee : MonoBehaviour
         }
         
         SetState(EmployeeState.Resting);
-        Debug.Log($"[Employee] {employeeData.employeeName}이(가) 휴식을 취합니다.");
+        
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] {employeeData.employeeName}이(가) 휴식을 취합니다.");
+        }
     }
     
     public void Eat(float nutritionValue)
     {
         currentNeeds.hunger += nutritionValue;
         currentNeeds.hunger = Mathf.Clamp(currentNeeds.hunger, 0f, 100f);
-        Debug.Log($"[Employee] {employeeData.employeeName}이(가) 식사했습니다. (배고픔: {currentNeeds.hunger:F0}%)");
+        
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] {employeeData.employeeName}이(가) 식사했습니다. (배고픔: {currentNeeds.hunger:F0}%)");
+        }
     }
     
     #endregion
@@ -473,8 +516,11 @@ public class Employee : MonoBehaviour
             case EmployeeState.Working:
                 color = Color.yellow;
                 break;
-            case EmployeeState.Resting:
+            case EmployeeState.Moving:
                 color = Color.cyan;
+                break;
+            case EmployeeState.Resting:
+                color = new Color(0.5f, 0.5f, 1f);
                 break;
             case EmployeeState.MentalBreak:
                 color = Color.magenta;
@@ -513,16 +559,28 @@ public class Employee : MonoBehaviour
             .ToList();
     }
     
+    public int GetWorkPriority(WorkType type)
+    {
+        var work = workPriorities.FirstOrDefault(w => w.workType == type);
+        return work != null ? work.priority : 999;
+    }
+    
     #endregion
     
     private void ShowDebugStatus()
     {
-        string status = $"{employeeData.employeeName}\n";
-        status += $"HP: {currentStats.health:F0}/{currentStats.maxHealth} ";
-        status += $"Mental: {currentStats.mental:F0}/{currentStats.maxMental}\n";
-        status += $"Hunger: {currentNeeds.hunger:F0}% ";
-        status += $"Fatigue: {currentNeeds.fatigue:F0}%\n";
-        status += $"State: {currentState} Work: {currentWork}";
+        if (Time.frameCount % 60 != 0) return; // 1초마다만 출력
+        
+        string status = $"[{employeeData.employeeName}] ";
+        status += $"State:{currentState} Work:{currentWork} ";
+        status += $"HP:{currentStats.health:F0}/{currentStats.maxHealth} ";
+        status += $"Mental:{currentStats.mental:F0}/{currentStats.maxMental} ";
+        status += $"Hunger:{currentNeeds.hunger:F0}% Fatigue:{currentNeeds.fatigue:F0}%";
+        
+        if (currentWorkTarget != null)
+        {
+            status += $" | Target:{currentWorkTarget.GetWorkPosition()}";
+        }
         
         Debug.Log(status);
     }
@@ -534,14 +592,8 @@ public class Employee : MonoBehaviour
     public EmployeeState State => currentState;
     public WorkType CurrentWork => currentWork;
     public float WorkProgress => workProgress;
+    public bool IsAvailableForWork => currentState == EmployeeState.Idle;
 }
-
-// 데이터 구조체들
-
-
-
-
-
 
 public enum EmployeeState
 {

@@ -11,6 +11,10 @@ public class WorkManager : DestroySingleton<WorkManager>
     [SerializeField] private List<Employee> allEmployees = new List<Employee>();
     [SerializeField] private List<Employee> idleEmployees = new List<Employee>();
     
+    [Header("작업 할당 설정")]
+    [SerializeField] private float assignmentInterval = 0.5f; // 작업 할당 체크 간격
+    [SerializeField] private float maxAssignmentDistance = 100f; // 최대 작업 할당 거리
+    
     [Header("디버그")]
     [SerializeField] private bool showDebugInfo = true;
     
@@ -24,7 +28,6 @@ public class WorkManager : DestroySingleton<WorkManager>
         base.Awake();
     }
     
-
     void Start()
     {
         orderManager = WorkOrderManager.instance;
@@ -32,8 +35,8 @@ public class WorkManager : DestroySingleton<WorkManager>
         {
             Debug.LogError("[WorkManager] WorkOrderManager를 찾을 수 없습니다!");
         }
-    
-        // ★★★ EmployeeManager 연동 ★★★
+        
+        // EmployeeManager 연동
         if (EmployeeManager.instance != null)
         {
             // 이미 생성된 직원들 등록
@@ -41,32 +44,26 @@ public class WorkManager : DestroySingleton<WorkManager>
             {
                 RegisterEmployee(employee);
             }
-        
+            
             // 새로 생성되는 직원 자동 등록
             EmployeeManager.instance.OnEmployeeSpawned += RegisterEmployee;
             EmployeeManager.instance.OnEmployeeRemoved += UnregisterEmployee;
+            
+            if (showDebugInfo)
+            {
+                Debug.Log($"[WorkManager] EmployeeManager와 연동 완료. 현재 직원: {EmployeeManager.instance.EmployeeCount}명");
+            }
+        }
         
-            Debug.Log($"[WorkManager] EmployeeManager와 연동 완료. " +
-                      $"현재 직원: {EmployeeManager.instance.EmployeeCount}명");
-        }
-        else
-        {
-            Debug.LogWarning("[WorkManager] EmployeeManager를 찾을 수 없습니다. " +
-                             "직원 자동 등록이 비활성화됩니다.");
-        }
-    
-        // ★★★ 기존 RefreshEmployeeList() 호출 제거 ★★★
-        // RefreshEmployeeList();
-    
-        InvokeRepeating(nameof(ProcessWorkAssignment), 1f, 0.5f);
+        // 주기적으로 작업 할당 처리
+        InvokeRepeating(nameof(ProcessWorkAssignment), 1f, assignmentInterval);
     }
-
     
     void OnDestroy()
     {
         CancelInvoke();
-    
-        // ★★★ 이벤트 구독 해제 ★★★
+        
+        // 이벤트 구독 해제
         if (EmployeeManager.instance != null)
         {
             EmployeeManager.instance.OnEmployeeSpawned -= RegisterEmployee;
@@ -76,33 +73,11 @@ public class WorkManager : DestroySingleton<WorkManager>
     
     #region 직원 관리
     
-    public void RefreshEmployeeList()
-    {
-        foreach (var emp in allEmployees)
-        {
-            if (emp != null)
-            {
-                emp.OnStateChanged -= OnEmployeeStateChanged;
-            }
-        }
-        
-        allEmployees.Clear();
-        allEmployees.AddRange(FindObjectsOfType<Employee>());
-        
-        foreach (var emp in allEmployees)
-        {
-            emp.OnStateChanged += OnEmployeeStateChanged;
-        }
-        
-        UpdateIdleEmployees();
-        
-        Debug.Log($"[WorkManager] {allEmployees.Count}명의 직원 등록 완료");
-    }
-    
     private void OnEmployeeStateChanged(EmployeeState state)
     {
         UpdateIdleEmployees();
         
+        // 직원이 유휴 상태가 되면 즉시 작업 할당 시도
         if (state == EmployeeState.Idle)
         {
             ProcessWorkAssignment();
@@ -118,30 +93,38 @@ public class WorkManager : DestroySingleton<WorkManager>
     
     public void RegisterEmployee(Employee employee)
     {
-        if (!allEmployees.Contains(employee))
+        if (employee == null || allEmployees.Contains(employee)) return;
+        
+        allEmployees.Add(employee);
+        employee.OnStateChanged += OnEmployeeStateChanged;
+        UpdateIdleEmployees();
+        
+        if (showDebugInfo)
         {
-            allEmployees.Add(employee);
-            employee.OnStateChanged += OnEmployeeStateChanged;
-            UpdateIdleEmployees();
+            Debug.Log($"[WorkManager] 직원 등록: {employee.Data.employeeName}");
         }
     }
     
     public void UnregisterEmployee(Employee employee)
     {
-        if (allEmployees.Contains(employee))
+        if (employee == null || !allEmployees.Contains(employee)) return;
+        
+        allEmployees.Remove(employee);
+        employee.OnStateChanged -= OnEmployeeStateChanged;
+        
+        // 해당 직원이 작업 중이던 작업물에서 제거
+        if (employeeToOrderMap.ContainsKey(employee))
         {
-            allEmployees.Remove(employee);
-            employee.OnStateChanged -= OnEmployeeStateChanged;
-            
-            // 해당 직원이 작업 중이던 작업물에서 제거
-            if (employeeToOrderMap.ContainsKey(employee))
-            {
-                WorkOrder order = employeeToOrderMap[employee];
-                order.UnassignWorker(employee);
-                employeeToOrderMap.Remove(employee);
-            }
-            
-            UpdateIdleEmployees();
+            WorkOrder order = employeeToOrderMap[employee];
+            order.UnassignWorker(employee);
+            employeeToOrderMap.Remove(employee);
+        }
+        
+        UpdateIdleEmployees();
+        
+        if (showDebugInfo)
+        {
+            Debug.Log($"[WorkManager] 직원 제거: {employee.Data.employeeName}");
         }
     }
     
@@ -160,87 +143,99 @@ public class WorkManager : DestroySingleton<WorkManager>
         // 우선순위별로 정렬된 작업물 가져오기
         var activeOrders = orderManager.GetActiveOrders();
         
-        foreach (var order in activeOrders)
+        if (activeOrders.Count == 0)
+            return;
+        
+        // 각 유휴 직원에 대해 작업 할당
+        foreach (var employee in idleEmployees.ToList())
         {
-            // 이 작업물에 더 할당할 수 있는지 확인
-            while (order.CanAssignWorker() && idleEmployees.Count > 0)
+            if (employee == null || employee.State != EmployeeState.Idle)
+                continue;
+            
+            // 직원의 우선순위에 맞는 작업물 찾기
+            WorkOrder bestOrder = FindBestOrderForEmployee(employee, activeOrders);
+            
+            if (bestOrder != null)
             {
-                // 이 작업에 적합한 직원 찾기
-                Employee bestWorker = FindBestWorkerForOrder(order);
-                
-                if (bestWorker != null)
-                {
-                    AssignWorkerToOrder(bestWorker, order);
-                    UpdateIdleEmployees();
-                }
-                else
-                {
-                    break; // 더 이상 할당 가능한 직원이 없음
-                }
+                AssignWorkerToOrder(employee, bestOrder);
             }
         }
+        
+        UpdateIdleEmployees();
     }
     
     /// <summary>
-    /// 작업물에 가장 적합한 직원을 찾습니다.
+    /// 직원에게 가장 적합한 작업물을 찾습니다.
     /// </summary>
-    private Employee FindBestWorkerForOrder(WorkOrder order)
+    private WorkOrder FindBestOrderForEmployee(Employee employee, List<WorkOrder> orders)
     {
-        // 해당 작업을 수행할 수 있는 직원 필터링
-        var capableWorkers = idleEmployees
-            .Where(e => e.CanPerformWork(order.workType))
-            .ToList();
-        
-        if (capableWorkers.Count == 0)
-            return null;
-        
-        // 가용 작업 대상 중 가장 가까운 곳 찾기
-        var availableTargets = order.GetAvailableTargets();
-        if (availableTargets.Count == 0)
-            return null;
-        
-        Employee bestWorker = null;
+        WorkOrder bestOrder = null;
         float bestScore = float.MinValue;
         
-        foreach (var worker in capableWorkers)
+        foreach (var order in orders)
         {
-            // 가장 가까운 작업 대상까지의 거리 계산
-            float minDistance = availableTargets
-                .Min(t => Vector3.Distance(worker.transform.position, t.GetWorkPosition()));
+            // 직원이 할 수 없는 작업 타입이면 스킵
+            if (!employee.CanPerformWork(order.workType))
+                continue;
             
-            float score = CalculateWorkerScore(worker, order, minDistance);
+            // 더 이상 작업자를 할당할 수 없으면 스킵
+            if (!order.CanAssignWorker())
+                continue;
+            
+            // 가용 작업 대상이 있는지 확인
+            var availableTargets = order.GetAvailableTargets();
+            if (availableTargets.Count == 0)
+                continue;
+            
+            // 점수 계산
+            float score = CalculateOrderScore(employee, order, availableTargets);
             
             if (score > bestScore)
             {
                 bestScore = score;
-                bestWorker = worker;
+                bestOrder = order;
             }
         }
         
-        return bestWorker;
+        return bestOrder;
     }
     
     /// <summary>
-    /// 직원의 작업 적합도 점수를 계산합니다.
+    /// 작업물의 적합도 점수를 계산합니다.
     /// </summary>
-    private float CalculateWorkerScore(Employee worker, WorkOrder order, float distanceToWork)
+    private float CalculateOrderScore(Employee employee, WorkOrder order, List<IWorkTarget> availableTargets)
     {
         float score = 0f;
         
-        // 거리 (가까울수록 높은 점수)
-        score += (50f - distanceToWork) * 2f;
+        // 1. 작업 우선순위 (낮을수록 높은 점수)
+        int employeePriority = employee.GetWorkPriority(order.workType);
+        score += (100 - employeePriority) * 10f;
         
-        // 작업 속도
-        float workSpeed = worker.GetWorkSpeed(order.workType);
+        // 2. 작업물 우선순위 (낮을수록 높은 점수)
+        score += (100 - order.priority) * 5f;
+        
+        // 3. 거리 (가까울수록 높은 점수)
+        float minDistance = availableTargets
+            .Min(t => Vector3.Distance(employee.transform.position, t.GetWorkPosition()));
+        
+        if (minDistance > maxAssignmentDistance)
+        {
+            return float.MinValue; // 너무 멀면 할당 안 함
+        }
+        
+        score += (maxAssignmentDistance - minDistance) * 2f;
+        
+        // 4. 작업 속도
+        float workSpeed = employee.GetWorkSpeed(order.workType);
         score += workSpeed * 30f;
         
-        // 직원 상태
-        float healthRatio = worker.Stats.health / worker.Stats.maxHealth;
-        float mentalRatio = worker.Stats.mental / worker.Stats.maxMental;
+        // 5. 직원 상태
+        float healthRatio = employee.Stats.health / employee.Stats.maxHealth;
+        float mentalRatio = employee.Stats.mental / employee.Stats.maxMental;
         score += (healthRatio + mentalRatio) * 10f;
         
-        // 피로도
-        float fatigueRatio = worker.Needs.fatigue / 100f;
+        // 6. 피로도
+        float fatigueRatio = employee.Needs.fatigue / 100f;
         score += fatigueRatio * 20f;
         
         return score;
@@ -254,37 +249,47 @@ public class WorkManager : DestroySingleton<WorkManager>
         // 작업물에 직원 등록
         if (!order.AssignWorker(worker))
         {
-            Debug.LogWarning($"[WorkManager] {worker.Data.employeeName}을(를) 작업물 '{order.orderName}'에 할당 실패");
+            if (showDebugInfo)
+            {
+                Debug.LogWarning($"[WorkManager] {worker.Data.employeeName}을(를) 작업물 '{order.orderName}'에 할당 실패");
+            }
             return;
         }
         
         // 매핑 저장
         employeeToOrderMap[worker] = order;
-        idleEmployees.Remove(worker);
         
         // 구체적인 작업 대상 할당
-        AssignSpecificTarget(worker, order);
-        
-        if (showDebugInfo)
+        if (AssignSpecificTarget(worker, order))
         {
-            Debug.Log($"[WorkManager] {worker.Data.employeeName}을(를) 작업물 '{order.orderName}'에 할당 " +
-                     $"(현재 작업자: {order.assignedWorkers.Count}/{order.maxAssignedWorkers})");
+            if (showDebugInfo)
+            {
+                Debug.Log($"[WorkManager] {worker.Data.employeeName}을(를) 작업물 '{order.orderName}'에 할당 " +
+                         $"(현재 작업자: {order.assignedWorkers.Count}/{order.maxAssignedWorkers})");
+            }
+        }
+        else
+        {
+            // 할당 실패 시 롤백
+            order.UnassignWorker(worker);
+            employeeToOrderMap.Remove(worker);
         }
     }
     
     /// <summary>
     /// 직원에게 구체적인 작업 대상을 할당합니다.
     /// </summary>
-    private void AssignSpecificTarget(Employee worker, WorkOrder order)
+    private bool AssignSpecificTarget(Employee worker, WorkOrder order)
     {
         var availableTargets = order.GetAvailableTargets();
         
         if (availableTargets.Count == 0)
         {
-            Debug.LogWarning($"[WorkManager] 작업물 '{order.orderName}'에 가용 작업 대상이 없습니다.");
-            order.UnassignWorker(worker);
-            employeeToOrderMap.Remove(worker);
-            return;
+            if (showDebugInfo)
+            {
+                Debug.LogWarning($"[WorkManager] 작업물 '{order.orderName}'에 가용 작업 대상이 없습니다.");
+            }
+            return false;
         }
         
         // 가장 가까운 작업 대상 찾기
@@ -296,7 +301,9 @@ public class WorkManager : DestroySingleton<WorkManager>
         order.AssignTargetToWorker(worker, closestTarget);
         
         // 직원에게 작업 할당
-        worker.AssignWork(closestTarget);
+        worker.AssignWork(order, closestTarget);
+        
+        return true;
     }
     
     #endregion
@@ -306,12 +313,9 @@ public class WorkManager : DestroySingleton<WorkManager>
     /// <summary>
     /// 직원이 작업을 완료했을 때 호출됩니다.
     /// </summary>
-    public void OnWorkerCompletedTarget(Employee worker, IWorkTarget target)
+    public void OnWorkerCompletedTarget(Employee worker, IWorkTarget target, WorkOrder order)
     {
-        if (!employeeToOrderMap.ContainsKey(worker))
-            return;
-        
-        WorkOrder order = employeeToOrderMap[worker];
+        if (worker == null || order == null) return;
         
         // 작업물에서 해당 대상 완료 처리
         order.CompleteTarget(target, worker);
@@ -319,7 +323,7 @@ public class WorkManager : DestroySingleton<WorkManager>
         if (showDebugInfo)
         {
             Debug.Log($"[WorkManager] {worker.Data.employeeName}이(가) 작업 완료. " +
-                     $"진행률: {order.GetProgress() * 100:F0}%");
+                     $"진행률: {order.GetProgress() * 100:F0}% | {order.GetDebugInfo()}");
         }
         
         // 작업물이 완전히 완료되었는지 확인
@@ -330,12 +334,25 @@ public class WorkManager : DestroySingleton<WorkManager>
                 Debug.Log($"[WorkManager] 작업물 '{order.orderName}' 완전 완료!");
             }
             
+            order.UnassignWorker(worker);
             employeeToOrderMap.Remove(worker);
+            
+            // 완료된 작업물 제거
+            if (orderManager != null)
+            {
+                orderManager.RemoveWorkOrder(order);
+            }
+            
             return;
         }
         
-        // 다음 작업 대상 할당
-        AssignSpecificTarget(worker, order);
+        // 같은 작업물에서 다음 작업 대상 할당
+        if (!AssignSpecificTarget(worker, order))
+        {
+            // 더 이상 할당할 작업이 없으면 작업자 해제
+            order.UnassignWorker(worker);
+            employeeToOrderMap.Remove(worker);
+        }
     }
     
     /// <summary>
@@ -343,7 +360,7 @@ public class WorkManager : DestroySingleton<WorkManager>
     /// </summary>
     public void OnWorkerCancelledWork(Employee worker)
     {
-        if (!employeeToOrderMap.ContainsKey(worker))
+        if (worker == null || !employeeToOrderMap.ContainsKey(worker))
             return;
         
         WorkOrder order = employeeToOrderMap[worker];
@@ -369,7 +386,6 @@ public class WorkManager : DestroySingleton<WorkManager>
     {
         if (orderManager == null) return null;
         
-        // WorkOrderManager에서 해당 타입의 활성 작업물 가져오기
         var orders = orderManager.GetOrdersByType(workType);
         
         IWorkTarget closestTarget = null;
@@ -377,7 +393,6 @@ public class WorkManager : DestroySingleton<WorkManager>
         
         foreach (var order in orders)
         {
-            // 가용 작업 대상 가져오기
             var availableTargets = order.GetAvailableTargets();
             
             foreach (var target in availableTargets)
@@ -429,6 +444,21 @@ public class WorkManager : DestroySingleton<WorkManager>
         };
     }
     
+    /// <summary>
+    /// 디버그용: 모든 작업 할당 상태 출력
+    /// </summary>
+    [ContextMenu("Print Work Assignments")]
+    public void PrintWorkAssignments()
+    {
+        Debug.Log($"=== 작업 할당 상태 ===");
+        Debug.Log($"전체 직원: {allEmployees.Count}명, 유휴: {idleEmployees.Count}명, 작업 중: {employeeToOrderMap.Count}명");
+        
+        foreach (var kvp in employeeToOrderMap)
+        {
+            Debug.Log($"- {kvp.Key.Data.employeeName}: {kvp.Value.GetDebugInfo()}");
+        }
+    }
+    
     void OnDrawGizmos()
     {
         if (!showDebugInfo || orderManager == null)
@@ -469,4 +499,3 @@ public class WorkManager : DestroySingleton<WorkManager>
     public List<Employee> AllEmployees => allEmployees;
     public List<Employee> IdleEmployees => idleEmployees;
 }
-

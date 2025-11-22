@@ -34,6 +34,9 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     [SerializeField] private int defaultHarvestWorkers = 2;
     [SerializeField] private int defaultDemolishWorkers = 1;
     
+    [Header("최적화 설정")]
+    [SerializeField] private int maxTilesPerOrder = 200; // 한 작업물당 최대 타일 수
+    
     [Header("테스트용")]
     [SerializeField] private BuildingData testBuildingToBuild;
     [SerializeField] private bool enableCheatKey = true;
@@ -267,6 +270,14 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         int minY = Mathf.Min(startCell.y, endCell.y);
         int maxY = Mathf.Max(startCell.y, endCell.y);
         
+        // 프리징 방지: 선택 영역 크기 제한
+        int areaSize = (maxX - minX + 1) * (maxY - minY + 1);
+        if (areaSize > maxTilesPerOrder)
+        {
+            Debug.LogWarning($"[Interaction] 선택 영역이 너무 큽니다! (최대: {maxTilesPerOrder}, 현재: {areaSize})");
+            return;
+        }
+        
         List<Vector3Int> tilesToMine = new List<Vector3Int>();
         
         for (int x = minX; x <= maxX; x++)
@@ -282,7 +293,15 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         
         if (tilesToMine.Count > 0)
         {
-            CreateMiningWorkOrder(tilesToMine);
+            // 프리징 방지: 대량 작업을 여러 작업물로 분할
+            if (tilesToMine.Count > maxTilesPerOrder)
+            {
+                CreateMultipleMiningOrders(tilesToMine);
+            }
+            else
+            {
+                CreateMiningWorkOrder(tilesToMine);
+            }
         }
     }
     
@@ -321,7 +340,8 @@ public class InteractionManager : DestroySingleton<InteractionManager>
                 position = tile,
                 tileID = _gameMap.TileGrid[tile.x, tile.y],
                 priority = 3,
-                completed = false
+                completed = false,
+                assignedWorker = null
             };
             targets.Add(miningOrder);
         }
@@ -329,6 +349,25 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         workOrder.AddTargets(targets);
         
         Debug.Log($"[Interaction] 채광 작업물 생성: {tiles.Count}개 타일, 최대 작업자 {defaultMiningWorkers}명");
+    }
+    
+    /// <summary>
+    /// 대량 작업을 여러 작업물로 분할합니다.
+    /// </summary>
+    private void CreateMultipleMiningOrders(List<Vector3Int> tiles)
+    {
+        int orderCount = Mathf.CeilToInt((float)tiles.Count / maxTilesPerOrder);
+        
+        for (int i = 0; i < orderCount; i++)
+        {
+            int startIndex = i * maxTilesPerOrder;
+            int count = Mathf.Min(maxTilesPerOrder, tiles.Count - startIndex);
+            List<Vector3Int> batch = tiles.GetRange(startIndex, count);
+            
+            CreateMiningWorkOrder(batch);
+        }
+        
+        Debug.Log($"[Interaction] 대량 채광 작업을 {orderCount}개 작업물로 분할 생성 (총 {tiles.Count}개 타일)");
     }
     
     #endregion
@@ -372,19 +411,27 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         }
         _selectedObjects.Clear();
         
+        // 프리징 방지: Physics2D 쿼리 최적화
         Collider2D[] colliders = Physics2D.OverlapBoxAll(
             selectionBounds.center,
             selectionBounds.size,
             0f
         );
         
+        // 최대 선택 개수 제한
+        int maxSelection = 50;
+        int selectedCount = 0;
+        
         foreach (var collider in colliders)
         {
+            if (selectedCount >= maxSelection) break;
+            
             IHarvestable harvestable = collider.GetComponent<IHarvestable>();
             if (harvestable != null && harvestable.CanHarvest())
             {
                 _selectedObjects.Add(collider.gameObject);
                 SetObjectHighlight(collider.gameObject, true);
+                selectedCount++;
             }
         }
     }
@@ -422,7 +469,8 @@ public class InteractionManager : DestroySingleton<InteractionManager>
                     target = harvestable,
                     position = obj.transform.position,
                     priority = 4,
-                    completed = false
+                    completed = false,
+                    assignedWorker = null
                 };
                 targets.Add(harvestOrder);
             }
@@ -462,6 +510,9 @@ public class InteractionManager : DestroySingleton<InteractionManager>
             case WorkType.Gardening: return "수확";
             case WorkType.Mining: return "채광";
             case WorkType.Demolish: return "철거";
+            case WorkType.Building: return "건설";
+            case WorkType.Crafting: return "제작";
+            case WorkType.Research: return "연구";
             default: return "작업";
         }
     }
@@ -694,7 +745,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
                 WorkOrder workOrder = _workOrderManager.CreateWorkOrder(
                     $"철거: {building.buildingData.buildingName}",
                     WorkType.Demolish,
-                    maxWorkers: 1,  // 철거는 1명만
+                    maxWorkers: defaultDemolishWorkers,
                     priority: 6
                 );
                 
@@ -703,7 +754,8 @@ public class InteractionManager : DestroySingleton<InteractionManager>
                     building = building,
                     position = obj.transform.position,
                     priority = 6,
-                    completed = false
+                    completed = false,
+                    assignedWorker = null
                 };
                 
                 workOrder.AddTarget(demolishOrder);
@@ -885,6 +937,3 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     
     #endregion
 }
-
-// MiningOrder, HarvestOrder, DemolishOrder는 이미 WorkOrder.cs에 정의되어 있으므로
-// 여기서는 제거하고 InteractionManager에서만 사용

@@ -29,6 +29,30 @@ public class WorkOrder
     public bool isActive;                 // 활성화 상태
     public bool isPaused;                 // 일시정지 상태
     
+    // 작업 타입별 동시 작업 가능 여부를 판단하는 정적 메서드
+    public static bool CanMultipleWorkersWork(WorkType type)
+    {
+        switch (type)
+        {
+            case WorkType.Mining:      // 채광 - 여러 명 가능
+            case WorkType.Chopping:    // 벌목 - 여러 명 가능
+            case WorkType.Gardening:   // 수확 - 여러 명 가능
+            case WorkType.Hauling:     // 운반 - 여러 명 가능
+            case WorkType.Demolish:    // 철거 - 여러 명 가능 (큰 건물)
+                return true;
+                
+            case WorkType.Crafting:    // 제작 - 1명만
+            case WorkType.Research:    // 연구 - 1명만
+            case WorkType.Building:    // 건설 - 1명만
+            case WorkType.Resting:     // 휴식 - 개인 활동
+            case WorkType.Eating:      // 식사 - 개인 활동
+                return false;
+                
+            default:
+                return false;
+        }
+    }
+    
     public WorkOrder()
     {
         targets = new List<IWorkTarget>();
@@ -53,6 +77,8 @@ public class WorkOrder
     /// </summary>
     public void AddTargets(List<IWorkTarget> newTargets)
     {
+        if (newTargets == null) return;
+        
         foreach (var target in newTargets)
         {
             AddTarget(target);
@@ -64,9 +90,22 @@ public class WorkOrder
     /// </summary>
     public bool CanAssignWorker()
     {
-        return assignedWorkers.Count < maxAssignedWorkers && 
-               GetAvailableTargets().Count > 0 &&
-               isActive && !isPaused;
+        // 비활성화 또는 일시정지 상태면 불가
+        if (!isActive || isPaused) return false;
+        
+        // 가용 작업 대상이 없으면 불가
+        if (GetAvailableTargets().Count == 0) return false;
+        
+        // 최대 작업자 수 확인
+        if (assignedWorkers.Count >= maxAssignedWorkers) return false;
+        
+        // 단일 작업자만 가능한 작업 타입인 경우
+        if (!CanMultipleWorkersWork(workType) && assignedWorkers.Count > 0)
+        {
+            return false;
+        }
+        
+        return true;
     }
     
     /// <summary>
@@ -117,6 +156,7 @@ public class WorkOrder
         var assignedTargets = workerAssignments.Values.ToList();
         return targets.Where(t => !assignedTargets.Contains(t) && 
                                    !completedTargets.Contains(t) &&
+                                   t != null &&
                                    t.IsWorkAvailable()).ToList();
     }
     
@@ -125,6 +165,8 @@ public class WorkOrder
     /// </summary>
     public void CompleteTarget(IWorkTarget target, Employee worker)
     {
+        if (target == null) return;
+        
         if (targets.Contains(target))
         {
             targets.Remove(target);
@@ -197,7 +239,25 @@ public class WorkOrder
         assignedWorkers.Clear();
         workerAssignments.Clear();
     }
+    
+    /// <summary>
+    /// 특정 직원이 이 작업물에서 작업 중인지 확인합니다.
+    /// </summary>
+    public bool IsWorkerAssigned(Employee worker)
+    {
+        return assignedWorkers.Contains(worker);
+    }
+    
+    /// <summary>
+    /// 디버그 정보를 반환합니다.
+    /// </summary>
+    public string GetDebugInfo()
+    {
+        return $"[WorkOrder {orderId}] {orderName} | Type:{workType} | " +
+               $"Priority:{priority} | Workers:{assignedWorkers.Count}/{maxAssignedWorkers} | " +
+               $"Progress:{GetProgress() * 100:F0}% ({completedTargets.Count}/{targets.Count + completedTargets.Count}) | " +
+               $"Active:{isActive} Paused:{isPaused}";
+    }
 }
-
 
 
