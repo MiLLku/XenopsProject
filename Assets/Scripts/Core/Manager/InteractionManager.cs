@@ -70,6 +70,8 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     private Color _originalColor;
     private SpriteRenderer _hoveredRenderer;
     
+    private TileHighlighter _tileHighlighter;
+    
     // 이벤트
     public delegate void ModeChangedDelegate(InteractMode newMode);
     public event ModeChangedDelegate OnModeChanged;
@@ -97,6 +99,12 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         if (_workOrderManager == null)
         {
             Debug.LogError("WorkOrderManager를 찾을 수 없습니다!");
+        }
+        
+        _tileHighlighter = TileHighlighter.instance;
+        if (_tileHighlighter == null)
+        {
+            Debug.LogWarning("[InteractionManager] TileHighlighter를 찾을 수 없습니다!");
         }
     }
 
@@ -194,13 +202,13 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     public void SetMode(InteractMode mode)
     {
         if (_currentMode == mode) return;
-        
+    
         ExitCurrentMode();
         _currentMode = mode;
-        
+    
         Debug.Log($"[Interaction] 모드 변경: {mode}");
         OnModeChanged?.Invoke(mode);
-        
+    
         UpdateSelectionBoxColor();
     }
     
@@ -212,9 +220,6 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         {
             case InteractMode.Build:
                 ExitBuildMode();
-                break;
-            case InteractMode.Normal:
-                ClearHover();
                 break;
         }
     }
@@ -423,38 +428,72 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         else if (Input.GetMouseButton(0) && _isDragging)
         {
             _dragEndPos = _cameraController.GetMouseWorldPosition();
+        
+            // ★ 드래그 중 호버 표시
+            UpdateMiningHover();
         }
         else if (Input.GetMouseButtonUp(0) && _isDragging)
         {
             FinishMiningSelection();
             CancelDrag();
         }
-        
+    
         if (Input.GetMouseButtonDown(1))
         {
             CancelDrag();
         }
     }
     
-    private void FinishMiningSelection()
+    /// <summary>
+    /// 채광 모드 드래그 중 호버 표시
+    /// </summary>
+    private void UpdateMiningHover()
     {
+        if (_tileHighlighter == null) return;
+    
         Vector3Int startCell = groundTilemap.WorldToCell(_dragStartPos);
         Vector3Int endCell = groundTilemap.WorldToCell(_dragEndPos);
-        
+    
         int minX = Mathf.Min(startCell.x, endCell.x);
         int maxX = Mathf.Max(startCell.x, endCell.x);
         int minY = Mathf.Min(startCell.y, endCell.y);
         int maxY = Mathf.Max(startCell.y, endCell.y);
-        
+    
+        List<Vector3Int> tilesToHighlight = new List<Vector3Int>();
+    
+        for (int x = minX; x <= maxX; x++)
+        {
+            for (int y = minY; y <= maxY; y++)
+            {
+                if (CanMineTile(x, y))
+                {
+                    tilesToHighlight.Add(new Vector3Int(x, y, 0));
+                }
+            }
+        }
+    
+        _tileHighlighter.SetHoveredTiles(tilesToHighlight);
+    }
+    
+    private void FinishMiningSelection()
+    {
+        Vector3Int startCell = groundTilemap.WorldToCell(_dragStartPos);
+        Vector3Int endCell = groundTilemap.WorldToCell(_dragEndPos);
+    
+        int minX = Mathf.Min(startCell.x, endCell.x);
+        int maxX = Mathf.Max(startCell.x, endCell.x);
+        int minY = Mathf.Min(startCell.y, endCell.y);
+        int maxY = Mathf.Max(startCell.y, endCell.y);
+    
         int areaSize = (maxX - minX + 1) * (maxY - minY + 1);
         if (areaSize > maxTilesPerOrder)
         {
             Debug.LogWarning($"[Interaction] 선택 영역이 너무 큽니다! (최대: {maxTilesPerOrder}, 현재: {areaSize})");
             return;
         }
-        
+    
         List<Vector3Int> tilesToMine = new List<Vector3Int>();
-        
+    
         for (int x = minX; x <= maxX; x++)
         {
             for (int y = minY; y <= maxY; y++)
@@ -465,17 +504,11 @@ public class InteractionManager : DestroySingleton<InteractionManager>
                 }
             }
         }
-        
+    
         if (tilesToMine.Count > 0)
         {
-            if (tilesToMine.Count > maxTilesPerOrder)
-            {
-                CreateMultipleMiningOrders(tilesToMine);
-            }
-            else
-            {
-                CreateMiningWorkOrder(tilesToMine);
-            }
+            // ★ 더 이상 즉시 하이라이트하지 않음 (WorkOrderVisual이 처리)
+            CreateMiningWorkOrder(tilesToMine);
         }
     }
     
@@ -495,47 +528,39 @@ public class InteractionManager : DestroySingleton<InteractionManager>
             Debug.LogError("[Interaction] WorkOrderManager가 없습니다!");
             return;
         }
-        
-        WorkOrder workOrder = _workOrderManager.CreateWorkOrder(
+    
+        // ★ 비주얼과 함께 작업물 생성
+        WorkOrderVisual visual = _workOrderManager.CreateWorkOrderWithVisual(
             $"채광 작업 ({tiles.Count}개 타일)",
             WorkType.Mining,
             maxWorkers: defaultMiningWorkers,
+            tiles: tiles,
             priority: 3
         );
-        
-        List<IWorkTarget> targets = new List<IWorkTarget>();
-        foreach (var tile in tiles)
-        {
-            MiningOrder miningOrder = new MiningOrder
-            {
-                position = tile,
-                tileID = _gameMap.TileGrid[tile.x, tile.y],
-                priority = 3,
-                completed = false,
-                assignedWorker = null
-            };
-            targets.Add(miningOrder);
-        }
-        
-        workOrder.AddTargets(targets);
-        
-        Debug.Log($"[Interaction] 채광 작업물 생성: {tiles.Count}개 타일, 최대 작업자 {defaultMiningWorkers}명");
-    }
     
-    private void CreateMultipleMiningOrders(List<Vector3Int> tiles)
-    {
-        int orderCount = Mathf.CeilToInt((float)tiles.Count / maxTilesPerOrder);
-        
-        for (int i = 0; i < orderCount; i++)
+        if (visual != null)
         {
-            int startIndex = i * maxTilesPerOrder;
-            int count = Mathf.Min(maxTilesPerOrder, tiles.Count - startIndex);
-            List<Vector3Int> batch = tiles.GetRange(startIndex, count);
-            
-            CreateMiningWorkOrder(batch);
-        }
+            WorkOrder workOrder = visual.WorkOrder;
         
-        Debug.Log($"[Interaction] 대량 채광 작업을 {orderCount}개 작업물로 분할 생성 (총 {tiles.Count}개 타일)");
+            // 작업 대상 추가
+            List<IWorkTarget> targets = new List<IWorkTarget>();
+            foreach (var tile in tiles)
+            {
+                MiningOrder miningOrder = new MiningOrder
+                {
+                    position = tile,
+                    tileID = _gameMap.TileGrid[tile.x, tile.y],
+                    priority = 3,
+                    completed = false,
+                    assignedWorker = null
+                };
+                targets.Add(miningOrder);
+            }
+        
+            workOrder.AddTargets(targets);
+        
+            Debug.Log($"[Interaction] 채광 작업물 생성: {tiles.Count}개 타일");
+        }
     }
     
     #endregion
@@ -605,45 +630,60 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     private void FinishHarvestSelection()
     {
         if (_selectedObjects.Count == 0) return;
-        
+    
         if (_workOrderManager == null)
         {
             Debug.LogError("[Interaction] WorkOrderManager가 없습니다!");
             return;
         }
-        
+    
         WorkType workType = DetermineHarvestWorkType(_selectedObjects[0]);
-        
-        WorkOrder workOrder = _workOrderManager.CreateWorkOrder(
+    
+        // ★ 비주얼과 함께 작업물 생성
+        // (수확은 타일 위치가 아니라 오브젝트 위치를 사용)
+        List<Vector3Int> objectTiles = _selectedObjects
+            .Select(obj => new Vector3Int(
+                Mathf.FloorToInt(obj.transform.position.x),
+                Mathf.FloorToInt(obj.transform.position.y),
+                0))
+            .ToList();
+    
+        WorkOrderVisual visual = _workOrderManager.CreateWorkOrderWithVisual(
             $"{GetWorkTypeName(workType)} 작업 ({_selectedObjects.Count}개)",
             workType,
             maxWorkers: defaultHarvestWorkers,
+            tiles: objectTiles,
             priority: 4
         );
-        
-        List<IWorkTarget> targets = new List<IWorkTarget>();
-        foreach (var obj in _selectedObjects)
+    
+        if (visual != null)
         {
-            IHarvestable harvestable = obj.GetComponent<IHarvestable>();
-            if (harvestable != null && harvestable.CanHarvest())
+            WorkOrder workOrder = visual.WorkOrder;
+        
+            List<IWorkTarget> targets = new List<IWorkTarget>();
+            foreach (var obj in _selectedObjects)
             {
-                HarvestOrder harvestOrder = new HarvestOrder
+                IHarvestable harvestable = obj.GetComponent<IHarvestable>();
+                if (harvestable != null && harvestable.CanHarvest())
                 {
-                    target = harvestable,
-                    position = obj.transform.position,
-                    priority = 4,
-                    completed = false,
-                    assignedWorker = null
-                };
-                targets.Add(harvestOrder);
+                    HarvestOrder harvestOrder = new HarvestOrder
+                    {
+                        target = harvestable,
+                        position = obj.transform.position,
+                        priority = 4,
+                        completed = false,
+                        assignedWorker = null
+                    };
+                    targets.Add(harvestOrder);
+                }
+                SetObjectHighlight(obj, false);
             }
-            SetObjectHighlight(obj, false);
+        
+            workOrder.AddTargets(targets);
+        
+            Debug.Log($"[Interaction] {GetWorkTypeName(workType)} 작업물 생성: {_selectedObjects.Count}개");
         }
-        
-        workOrder.AddTargets(targets);
-        
-        Debug.Log($"[Interaction] {GetWorkTypeName(workType)} 작업물 생성: {_selectedObjects.Count}개, 최대 작업자 {defaultHarvestWorkers}명");
-        
+    
         _selectedObjects.Clear();
     }
     

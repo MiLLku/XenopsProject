@@ -233,24 +233,12 @@ public class Employee : MonoBehaviour
             SetState(EmployeeState.Dead);
             return;
         }
-        
-        // 정신력이 20% 이하면 정신 붕괴
-        if (currentStats.mental < currentStats.maxMental * 0.2f)
+    
+        // 정신력이 0 이하면 정신 붕괴
+        if (currentStats.mental <= 0f)
         {
             SetState(EmployeeState.MentalBreak);
             return;
-        }
-        
-        // 배고픔이 20% 이하면 식사 필요
-        if (currentNeeds.hunger < 20f && currentState != EmployeeState.Eating)
-        {
-            RequestFood();
-        }
-        
-        // 피로가 20% 이하면 휴식 필요
-        if (currentNeeds.fatigue < 20f && currentState != EmployeeState.Resting)
-        {
-            RequestRest();
         }
     }
     

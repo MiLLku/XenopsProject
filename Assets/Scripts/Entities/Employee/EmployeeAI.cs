@@ -4,14 +4,13 @@ using UnityEngine;
 
 /// <summary>
 /// 직원의 자율적인 행동을 관리하는 AI 컨트롤러
-/// WorkManager와 연동하여 작업을 할당받습니다.
+/// 작업 할당은 플레이어가 수동으로 하며, AI는 긴급 욕구만 처리합니다.
 /// </summary>
 public class EmployeeAI : MonoBehaviour
 {
     [Header("AI 설정")]
     [SerializeField] private float decisionInterval = 2f; // 결정 간격
-    [SerializeField] private float searchRadius = 20f;    // 작업 탐색 반경
-    [SerializeField] private bool enableAIWork = false;   // AI 자율 작업 비활성화 (WorkManager가 관리)
+    [SerializeField] private bool enableAutonomousBehavior = true; // 자율 행동 활성화
     
     private float lastDecisionTime;
     private Employee employee;
@@ -21,174 +20,190 @@ public class EmployeeAI : MonoBehaviour
         employee = GetComponent<Employee>();
     }
     
-    public void UpdateAI(Employee emp)
+    void Update()
     {
+        if (!enableAutonomousBehavior) return;
+        if (employee == null) return;
+        
         if (Time.time - lastDecisionTime < decisionInterval) return;
         
         lastDecisionTime = Time.time;
         
-        // 욕구 체크
-        if (CheckCriticalNeeds(emp)) return;
-        
-        // WorkManager가 작업 할당을 관리하므로 AI는 긴급 욕구만 처리
-        // 작업 할당은 WorkManager.ProcessWorkAssignment()에서 자동으로 처리됨
-        
-        // 디버그: AI 자율 작업이 활성화된 경우만 직접 작업 찾기
-        if (enableAIWork)
-        {
-            FindAndAssignWorkViaWorkManager(emp);
-        }
-    }
-    
-    private bool CheckCriticalNeeds(Employee emp)
-    {
-        // 긴급 욕구 처리
-        if (emp.Needs.hunger < 30f)
-        {
-            FindFood(emp);
-            return true;
-        }
-        
-        if (emp.Needs.fatigue < 30f)
-        {
-            FindRestingPlace(emp);
-            return true;
-        }
-        
-        return false;
+        // 긴급 욕구만 처리
+        CheckCriticalNeeds();
     }
     
     /// <summary>
-    /// WorkManager를 통해 작업을 찾습니다 (권장하지 않음, WorkManager가 자동으로 처리)
+    /// 긴급 욕구를 확인하고 처리합니다.
     /// </summary>
-    private void FindAndAssignWorkViaWorkManager(Employee emp)
+    private void CheckCriticalNeeds()
     {
-        // WorkManager가 이미 주기적으로 작업을 할당하므로
-        // 여기서는 아무것도 하지 않거나, 특수한 경우만 처리
-        
-        // 만약 WorkManager가 없거나 비활성화된 경우에만 직접 작업 찾기
-        if (WorkManager.instance == null)
+        // 배고픔이 20% 이하면 식사 필요
+        if (employee.Needs.hunger < 20f && employee.State != EmployeeState.Eating)
         {
-            Debug.LogWarning("[EmployeeAI] WorkManager가 없어 AI가 직접 작업을 찾습니다.");
-            LegacyFindAndAssignWork(emp);
+            HandleHunger();
+            return;
+        }
+        
+        // 피로가 20% 이하면 휴식 필요
+        if (employee.Needs.fatigue < 20f && employee.State != EmployeeState.Resting)
+        {
+            HandleFatigue();
+            return;
+        }
+        
+        // 정신력이 30% 이하면 휴식 필요
+        if (employee.Stats.mental < employee.Stats.maxMental * 0.3f && 
+            employee.State != EmployeeState.Resting && 
+            employee.State != EmployeeState.MentalBreak)
+        {
+            HandleLowMental();
+            return;
         }
     }
     
     /// <summary>
-    /// 레거시: WorkManager 없이 직접 작업을 찾는 방법 (사용 안 함)
+    /// 배고픔 처리
     /// </summary>
-    private void LegacyFindAndAssignWork(Employee emp)
+    private void HandleHunger()
     {
-        // 활성화된 작업 타입 가져오기
-        List<WorkType> enabledWorks = emp.GetEnabledWorkTypes();
-        
-        foreach (var workType in enabledWorks)
-        {
-            // WorkManager를 통해 가용 작업 찾기
-            if (WorkManager.instance != null)
-            {
-                IWorkTarget target = WorkManager.instance.GetAvailableWork(
-                    workType, 
-                    transform.position, 
-                    searchRadius
-                );
-                
-                if (target != null && target.IsWorkAvailable())
-                {
-                    // WorkManager를 통해 정식으로 할당받아야 하지만
-                    // 여기서는 임시로 로그만 출력
-                    Debug.Log($"[AI] {emp.Data.employeeName}이(가) {workType} 작업을 찾았습니다. " +
-                             "WorkManager가 자동으로 할당할 것입니다.");
-                    return;
-                }
-            }
-        }
-        
-        // 작업을 찾지 못했을 때
-        Wander(emp);
-    }
-    
-    private void FindFood(Employee emp)
-    {
-        // 음식 저장소 찾기
-        Debug.Log($"[AI] {emp.Data.employeeName}이(가) 음식을 찾고 있습니다.");
+        Debug.Log($"[AI] {employee.Data.employeeName}이(가) 배고픕니다. (배고픔: {employee.Needs.hunger:F0}%)");
         
         // 현재 작업 취소
-        if (emp.State == EmployeeState.Working)
+        if (employee.State == EmployeeState.Working)
         {
-            emp.CancelWork();
+            employee.CancelWork();
         }
         
-        // 임시: 근처 음식 저장소 찾기
+        // 음식 저장소 찾기
         GameObject[] foodStorages = GameObject.FindGameObjectsWithTag("FoodStorage");
         if (foodStorages.Length > 0)
         {
-            GameObject nearest = foodStorages.OrderBy(f => 
-                Vector2.Distance(transform.position, f.transform.position)).First();
+            GameObject nearest = foodStorages
+                .OrderBy(f => Vector2.Distance(transform.position, f.transform.position))
+                .First();
             
-            EmployeeMovement movement = emp.GetComponent<EmployeeMovement>();
+            EmployeeMovement movement = employee.GetComponent<EmployeeMovement>();
             if (movement != null)
             {
                 movement.MoveTo(nearest.transform.position, () => {
                     // 도착 후 식사
-                    emp.Eat(50f); // 임시 값
+                    employee.Eat(50f);
+                    Debug.Log($"[AI] {employee.Data.employeeName}이(가) 식사를 완료했습니다.");
                 });
             }
         }
         else
         {
             // 음식 저장소가 없으면 임시로 즉시 회복
-            Debug.LogWarning($"[AI] 음식 저장소를 찾을 수 없습니다. {emp.Data.employeeName}이(가) 임시로 회복합니다.");
-            emp.Eat(30f);
+            Debug.LogWarning($"[AI] 음식 저장소를 찾을 수 없습니다. {employee.Data.employeeName}이(가) 임시로 회복합니다.");
+            employee.Eat(30f);
         }
     }
     
-    private void FindRestingPlace(Employee emp)
+    /// <summary>
+    /// 피로 처리
+    /// </summary>
+    private void HandleFatigue()
     {
-        // 휴식 장소 찾기
-        Debug.Log($"[AI] {emp.Data.employeeName}이(가) 휴식 장소를 찾고 있습니다.");
+        Debug.Log($"[AI] {employee.Data.employeeName}이(가) 피곤합니다. (피로: {employee.Needs.fatigue:F0}%)");
         
         // 현재 작업 취소
-        if (emp.State == EmployeeState.Working)
+        if (employee.State == EmployeeState.Working)
         {
-            emp.CancelWork();
+            employee.CancelWork();
         }
         
-        // 임시: 근처 침대 찾기
-        GameObject[] beds = GameObject.FindGameObjectsWithTag("B    ed");
+        // 침대 찾기
+        GameObject[] beds = GameObject.FindGameObjectsWithTag("Bed");
         if (beds.Length > 0)
         {
-            GameObject nearest = beds.OrderBy(b => 
-                Vector2.Distance(transform.position, b.transform.position)).First();
+            GameObject nearest = beds
+                .OrderBy(b => Vector2.Distance(transform.position, b.transform.position))
+                .First();
             
-            EmployeeMovement movement = emp.GetComponent<EmployeeMovement>();
+            EmployeeMovement movement = employee.GetComponent<EmployeeMovement>();
             if (movement != null)
             {
                 movement.MoveTo(nearest.transform.position, () => {
-                    // 도착 후 휴식 (Employee 클래스에서 자동 처리)
+                    // 도착 후 휴식 (Employee의 상태 변경으로 자동 처리됨)
+                    Debug.Log($"[AI] {employee.Data.employeeName}이(가) 침대에 도착했습니다.");
                 });
             }
         }
         else
         {
             // 침대가 없으면 제자리에서 휴식
-            Debug.LogWarning($"[AI] 침대를 찾을 수 없습니다. {emp.Data.employeeName}이(가) 제자리에서 휴식합니다.");
+            Debug.LogWarning($"[AI] 침대를 찾을 수 없습니다. {employee.Data.employeeName}이(가) 제자리에서 휴식합니다.");
+            // 휴식 상태는 Employee 클래스의 CheckCriticalNeeds에서 자동 처리됨
         }
     }
     
-    private void Wander(Employee emp)
+    /// <summary>
+    /// 낮은 정신력 처리
+    /// </summary>
+    private void HandleLowMental()
     {
-        // 할 일이 없을 때 배회 (선택사항)
-        if (Random.Range(0f, 1f) < 0.1f) // 10% 확률로 이동
+        Debug.Log($"[AI] {employee.Data.employeeName}의 정신력이 낮습니다. (정신력: {employee.Stats.mental:F0}/{employee.Stats.maxMental})");
+        
+        // 현재 작업 취소
+        if (employee.State == EmployeeState.Working)
         {
-            Vector2 randomDirection = Random.insideUnitCircle * 5f;
-            Vector3 targetPos = transform.position + new Vector3(randomDirection.x, randomDirection.y, 0);
+            employee.CancelWork();
+        }
+        
+        // 휴식 공간 찾기 (침대 또는 의자)
+        GameObject[] restPlaces = GameObject.FindGameObjectsWithTag("Bed");
+        if (restPlaces.Length > 0)
+        {
+            GameObject nearest = restPlaces
+                .OrderBy(r => Vector2.Distance(transform.position, r.transform.position))
+                .First();
             
-            EmployeeMovement movement = emp.GetComponent<EmployeeMovement>();
+            EmployeeMovement movement = employee.GetComponent<EmployeeMovement>();
             if (movement != null)
             {
-                movement.MoveTo(targetPos, null);
+                movement.MoveTo(nearest.transform.position, () => {
+                    Debug.Log($"[AI] {employee.Data.employeeName}이(가) 휴식 중입니다.");
+                });
             }
         }
+        else
+        {
+            Debug.LogWarning($"[AI] 휴식 공간을 찾을 수 없습니다.");
+        }
+    }
+    
+    /// <summary>
+    /// AI 자율 행동을 활성화/비활성화합니다.
+    /// </summary>
+    public void SetAutonomousBehavior(bool enabled)
+    {
+        enableAutonomousBehavior = enabled;
+        
+        if (!enabled)
+        {
+            Debug.Log($"[AI] {employee?.Data?.employeeName}의 자율 행동이 비활성화되었습니다.");
+        }
+    }
+    
+    /// <summary>
+    /// 디버그: 현재 AI 상태 출력
+    /// </summary>
+    [ContextMenu("Print AI Status")]
+    public void PrintAIStatus()
+    {
+        if (employee == null)
+        {
+            Debug.Log("[AI] Employee 컴포넌트가 없습니다.");
+            return;
+        }
+        
+        Debug.Log($"=== {employee.Data.employeeName} AI 상태 ===");
+        Debug.Log($"자율 행동: {(enableAutonomousBehavior ? "활성화" : "비활성화")}");
+        Debug.Log($"배고픔: {employee.Needs.hunger:F0}%");
+        Debug.Log($"피로: {employee.Needs.fatigue:F0}%");
+        Debug.Log($"정신력: {employee.Stats.mental:F0}/{employee.Stats.maxMental}");
+        Debug.Log($"현재 상태: {employee.State}");
     }
 }

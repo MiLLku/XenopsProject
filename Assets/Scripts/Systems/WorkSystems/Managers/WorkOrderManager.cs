@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using UnityEngine;
 using System.Linq;
+
 /// <summary>
 /// 작업물 관리자 - 모든 작업물을 관리합니다.
 /// </summary>
@@ -10,8 +11,27 @@ public class WorkOrderManager : DestroySingleton<WorkOrderManager>
     [SerializeField] private List<WorkOrder> allOrders = new List<WorkOrder>();
     [SerializeField] private int nextOrderId = 1;
     
+    [Header("비주얼 설정")]
+    [SerializeField] private GameObject workOrderVisualPrefab; // WorkOrderVisual 프리팹
+    [SerializeField] private Transform visualParent; // 비주얼들의 부모 오브젝트
+    
     [Header("디버그")]
     [SerializeField] private bool showDebugInfo = true;
+    
+    // 작업물 ID -> 비주얼 매핑
+    private Dictionary<int, WorkOrderVisual> orderVisuals = new Dictionary<int, WorkOrderVisual>();
+    
+    protected override void Awake()
+    {
+        base.Awake();
+        
+        // 비주얼 부모 오브젝트 생성
+        if (visualParent == null)
+        {
+            GameObject parent = new GameObject("WorkOrderVisuals");
+            visualParent = parent.transform;
+        }
+    }
     
     /// <summary>
     /// 새 작업물을 생성합니다.
@@ -34,10 +54,43 @@ public class WorkOrderManager : DestroySingleton<WorkOrderManager>
         
         if (showDebugInfo)
         {
-            Debug.Log($"[WorkOrderManager] 작업물 생성: {name} (최대 작업자: {maxWorkers}명)");
+            Debug.Log($"[WorkOrderManager] 작업물 생성: {name} (ID: {order.orderId})");
         }
         
         return order;
+    }
+    
+    /// <summary>
+    /// 작업물에 비주얼을 생성합니다 (타일 위치 포함).
+    /// </summary>
+    public WorkOrderVisual CreateWorkOrderWithVisual(string name, WorkType workType, int maxWorkers, 
+        List<Vector3Int> tiles, int priority = 5)
+    {
+        WorkOrder order = CreateWorkOrder(name, workType, maxWorkers, priority);
+        
+        if (workOrderVisualPrefab == null)
+        {
+            Debug.LogWarning("[WorkOrderManager] WorkOrderVisual 프리팹이 설정되지 않았습니다!");
+            return null;
+        }
+        
+        // 비주얼 오브젝트 생성
+        GameObject visualObj = Instantiate(workOrderVisualPrefab, visualParent);
+        visualObj.name = $"WorkOrder_{order.orderId}_{name}";
+        
+        WorkOrderVisual visual = visualObj.GetComponent<WorkOrderVisual>();
+        if (visual != null)
+        {
+            visual.Initialize(order, tiles);
+            orderVisuals[order.orderId] = visual;
+            
+            if (showDebugInfo)
+            {
+                Debug.Log($"[WorkOrderManager] 작업물 비주얼 생성: {name} (타일 {tiles.Count}개)");
+            }
+        }
+        
+        return visual;
     }
     
     /// <summary>
@@ -49,6 +102,17 @@ public class WorkOrderManager : DestroySingleton<WorkOrderManager>
         
         order.Cancel();
         allOrders.Remove(order);
+        
+        // 비주얼도 삭제
+        if (orderVisuals.ContainsKey(order.orderId))
+        {
+            WorkOrderVisual visual = orderVisuals[order.orderId];
+            if (visual != null)
+            {
+                Destroy(visual.gameObject);
+            }
+            orderVisuals.Remove(order.orderId);
+        }
         
         if (showDebugInfo)
         {
@@ -70,7 +134,7 @@ public class WorkOrderManager : DestroySingleton<WorkOrderManager>
                 Debug.Log($"[WorkOrderManager] 작업물 완료: {order.orderName}");
             }
             
-            allOrders.Remove(order);
+            RemoveWorkOrder(order);
         }
     }
     
@@ -100,6 +164,15 @@ public class WorkOrderManager : DestroySingleton<WorkOrderManager>
     public WorkOrder GetOrderById(int id)
     {
         return allOrders.FirstOrDefault(o => o.orderId == id);
+    }
+    
+    /// <summary>
+    /// ID로 작업물 비주얼을 찾습니다.
+    /// </summary>
+    public WorkOrderVisual GetVisualById(int id)
+    {
+        orderVisuals.TryGetValue(id, out WorkOrderVisual visual);
+        return visual;
     }
     
     void Update()

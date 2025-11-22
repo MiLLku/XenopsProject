@@ -1,11 +1,13 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Tilemaps;
+using System.Linq;
 
 /// <summary>
 /// 타일맵에 하이라이트 효과를 표시하는 시스템
+/// 채광/수확/철거 모드에서 선택된 타일을 시각적으로 표시합니다.
 /// </summary>
-public class TileHighlighter : MonoBehaviour
+public class TileHighlighter : DestroySingleton<TileHighlighter>
 {
     [Header("Tilemap References")]
     [SerializeField] private Tilemap highlightTilemap; // 하이라이트 전용 타일맵
@@ -16,13 +18,20 @@ public class TileHighlighter : MonoBehaviour
     [SerializeField] private Color selectedColor = new Color(1f, 0.8f, 0.3f, 0.7f); // 선택 시 주황색
     [SerializeField] private Color assignedColor = new Color(0.8f, 0.8f, 0.3f, 0.5f); // 작업 배정 시 어두운 노란색
     
+    [Header("Auto-cleanup Settings")]
+    [SerializeField] private float cleanupCheckInterval = 0.5f; // 타일 상태 체크 간격
+    
     // 하이라이트 상태 관리
     private HashSet<Vector3Int> hoveredTiles = new HashSet<Vector3Int>();
     private HashSet<Vector3Int> selectedTiles = new HashSet<Vector3Int>();
     private Dictionary<Vector3Int, Color> assignedTiles = new Dictionary<Vector3Int, Color>();
     
-    void Awake()
+    private GameMap gameMap;
+    
+    protected override void Awake()
     {
+        base.Awake();
+        
         if (highlightTilemap == null)
         {
             Debug.LogError("[TileHighlighter] Highlight Tilemap이 설정되지 않았습니다!");
@@ -30,8 +39,24 @@ public class TileHighlighter : MonoBehaviour
         
         if (highlightTile == null)
         {
-            Debug.LogWarning("[TileHighlighter] Highlight Tile이 설정되지 않았습니다. 기본 타일을 사용합니다.");
+            Debug.LogWarning("[TileHighlighter] Highlight Tile이 설정되지 않았습니다.");
         }
+    }
+    
+    void Start()
+    {
+        if (MapGenerator.instance != null)
+        {
+            gameMap = MapGenerator.instance.GameMapInstance;
+        }
+        
+        // 주기적으로 타일 상태 체크
+        InvokeRepeating(nameof(CleanupInvalidTiles), cleanupCheckInterval, cleanupCheckInterval);
+    }
+    
+    void OnDestroy()
+    {
+        CancelInvoke();
     }
     
     #region Hover (호버)
@@ -51,6 +76,10 @@ public class TileHighlighter : MonoBehaviour
             if (selectedTiles.Contains(tile) || assignedTiles.ContainsKey(tile))
                 continue;
             
+            // 타일이 실제로 존재하는지 확인
+            if (!IsTileValid(tile))
+                continue;
+            
             hoveredTiles.Add(tile);
             SetTileColor(tile, hoverColor);
         }
@@ -61,7 +90,7 @@ public class TileHighlighter : MonoBehaviour
     /// </summary>
     public void ClearHovered()
     {
-        foreach (var tile in hoveredTiles)
+        foreach (var tile in hoveredTiles.ToList())
         {
             // 선택되거나 배정된 타일이 아니면 제거
             if (!selectedTiles.Contains(tile) && !assignedTiles.ContainsKey(tile))
@@ -83,6 +112,10 @@ public class TileHighlighter : MonoBehaviour
     {
         foreach (var tile in tiles)
         {
+            // 타일이 유효한지 확인
+            if (!IsTileValid(tile))
+                continue;
+            
             if (!selectedTiles.Contains(tile))
             {
                 selectedTiles.Add(tile);
@@ -96,7 +129,7 @@ public class TileHighlighter : MonoBehaviour
     /// </summary>
     public void ClearSelected()
     {
-        foreach (var tile in selectedTiles)
+        foreach (var tile in selectedTiles.ToList())
         {
             // 배정된 타일이 아니면 제거
             if (!assignedTiles.ContainsKey(tile))
@@ -116,10 +149,13 @@ public class TileHighlighter : MonoBehaviour
     /// </summary>
     public void ConvertSelectedToAssigned()
     {
-        foreach (var tile in selectedTiles)
+        foreach (var tile in selectedTiles.ToList())
         {
-            assignedTiles[tile] = assignedColor;
-            SetTileColor(tile, assignedColor);
+            if (IsTileValid(tile))
+            {
+                assignedTiles[tile] = assignedColor;
+                SetTileColor(tile, assignedColor);
+            }
         }
         selectedTiles.Clear();
     }
@@ -133,8 +169,11 @@ public class TileHighlighter : MonoBehaviour
         
         foreach (var tile in tiles)
         {
-            assignedTiles[tile] = color;
-            SetTileColor(tile, color);
+            if (IsTileValid(tile))
+            {
+                assignedTiles[tile] = color;
+                SetTileColor(tile, color);
+            }
         }
     }
     
@@ -155,11 +194,70 @@ public class TileHighlighter : MonoBehaviour
     /// </summary>
     public void ClearAllAssigned()
     {
-        foreach (var tile in assignedTiles.Keys)
+        foreach (var tile in assignedTiles.Keys.ToList())
         {
             highlightTilemap.SetTile(tile, null);
         }
         assignedTiles.Clear();
+    }
+    
+    #endregion
+    
+    #region Tile Validation & Cleanup
+    
+    /// <summary>
+    /// 타일이 유효한지 확인 (공기가 아닌 실제 타일인지)
+    /// </summary>
+    private bool IsTileValid(Vector3Int position)
+    {
+        if (gameMap == null) return false;
+        
+        // 맵 범위 확인
+        if (position.x < 0 || position.x >= GameMap.MAP_WIDTH ||
+            position.y < 0 || position.y >= GameMap.MAP_HEIGHT)
+        {
+            return false;
+        }
+        
+        // 타일이 공기(AIR)가 아닌지 확인
+        int tileID = gameMap.TileGrid[position.x, position.y];
+        return tileID != 0; // 0 = AIR_ID
+    }
+    
+    /// <summary>
+    /// 주기적으로 유효하지 않은 타일 제거
+    /// </summary>
+    private void CleanupInvalidTiles()
+    {
+        // 호버된 타일 정리
+        foreach (var tile in hoveredTiles.ToList())
+        {
+            if (!IsTileValid(tile))
+            {
+                hoveredTiles.Remove(tile);
+                highlightTilemap.SetTile(tile, null);
+            }
+        }
+        
+        // 선택된 타일 정리
+        foreach (var tile in selectedTiles.ToList())
+        {
+            if (!IsTileValid(tile))
+            {
+                selectedTiles.Remove(tile);
+                highlightTilemap.SetTile(tile, null);
+            }
+        }
+        
+        // 배정된 타일 정리
+        foreach (var tile in assignedTiles.Keys.ToList())
+        {
+            if (!IsTileValid(tile))
+            {
+                assignedTiles.Remove(tile);
+                highlightTilemap.SetTile(tile, null);
+            }
+        }
     }
     
     #endregion
