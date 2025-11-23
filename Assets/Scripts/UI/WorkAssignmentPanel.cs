@@ -1,36 +1,48 @@
 ﻿using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
-using System.Collections.Generic;
 using System;
+using System.Collections.Generic;
 
 public class WorkAssignmentPanel : MonoBehaviour
 {
     [Header("UI 요소 연결")]
     [SerializeField] private TextMeshProUGUI headerText;
-    [SerializeField] private Transform listContent;
+    [SerializeField] private Transform listContainer; // 직원 목록이 생성될 부모 (Vertical Layout Group)
     [SerializeField] private GameObject employeeRowPrefab;
     [SerializeField] private Button closeButton;
-    [SerializeField] private Button cancelButton;
+    [SerializeField] private Button cancelButton; // 작업 취소 버튼
+
+    [Header("페이지 네비게이션")]
+    [SerializeField] private Button prevButton; // 왼쪽 화살표 (<)
+    [SerializeField] private Button nextButton; // 오른쪽 화살표 (>)
+    [SerializeField] private TextMeshProUGUI pageText; // 페이지 번호 (1 / 3) - 선택사항
 
     [Header("색상 설정")]
     [SerializeField] private Color assignedColor = new Color(0.5f, 1f, 0.5f);
     [SerializeField] private Color unassignedColor = new Color(1f, 1f, 1f);
 
-    // 매니저에게 클릭 이벤트를 전달할 액션 (콜백)
+    // 설정 상수
+    private const int ITEMS_PER_PAGE = 4; // 페이지당 직원 수
+
     private Action<Employee> onEmployeeClickCallback;
     private Action onCloseCallback;
     private Action onCancelWorkCallback;
     
     private WorkOrder currentOrder;
+    private int currentPage = 0;
 
     public void Setup(WorkOrder order, Action<Employee> onEmployeeClick, Action onClose, Action onCancelWork)
     {
         currentOrder = order;
         onEmployeeClickCallback = onEmployeeClick;
         onCloseCallback = onClose;
+        onCancelWorkCallback = onCancelWork;
+        
+        currentPage = 0; // 항상 첫 페이지부터 시작
 
-        if(closeButton != null)
+        // 버튼 리스너 초기화 및 연결
+        if (closeButton != null)
         {
             closeButton.onClick.RemoveAllListeners();
             closeButton.onClick.AddListener(() => onCloseCallback?.Invoke());
@@ -39,22 +51,31 @@ public class WorkAssignmentPanel : MonoBehaviour
         if (cancelButton != null)
         {
             cancelButton.onClick.RemoveAllListeners();
-            cancelButton.onClick.AddListener(() => {
-                // "정말 취소하시겠습니까?" 팝업을 띄울 수도 있음
-                onCancelWorkCallback?.Invoke();
-            });
+            cancelButton.onClick.AddListener(() => onCancelWorkCallback?.Invoke());
+        }
+
+        if (prevButton != null)
+        {
+            prevButton.onClick.RemoveAllListeners();
+            prevButton.onClick.AddListener(OnPrevPage);
+        }
+
+        if (nextButton != null)
+        {
+            nextButton.onClick.RemoveAllListeners();
+            nextButton.onClick.AddListener(OnNextPage);
         }
 
         RefreshUI();
     }
 
-    // 외부(매니저)에서 데이터가 변경되었을 때 화면만 갱신
     public void RefreshUI()
     {
         if (currentOrder == null) return;
 
         UpdateHeader();
-        UpdateList();
+        UpdateEmployeeList();
+        UpdateNavigationButtons();
     }
 
     private void UpdateHeader()
@@ -65,42 +86,80 @@ public class WorkAssignmentPanel : MonoBehaviour
         }
     }
 
-    private void UpdateList()
+    private void UpdateEmployeeList()
     {
-        // 기존 목록 클리어
-        foreach (Transform child in listContent) Destroy(child.gameObject);
-
-        // 직원 목록 생성
-        List<Employee> employees = EmployeeManager.instance.AllEmployees;
-
-        foreach (var emp in employees)
+        // 1. 기존 목록 삭제
+        foreach (Transform child in listContainer)
         {
-            GameObject row = Instantiate(employeeRowPrefab, listContent);
-            
-            // 이름 설정
-            TextMeshProUGUI nameText = row.GetComponentInChildren<TextMeshProUGUI>();
-            if(nameText != null) nameText.text = emp.Data.employeeName;
+            Destroy(child.gameObject);
+        }
 
-            // 배경색 설정 (할당 여부에 따라)
-            Image bg = row.GetComponent<Image>();
-            bool isAssigned = currentOrder.IsWorkerAssigned(emp);
-            if (bg != null) bg.color = isAssigned ? assignedColor : unassignedColor;
+        // 2. 데이터 준비
+        List<Employee> allEmployees = EmployeeManager.instance.AllEmployees;
+        int totalCount = allEmployees.Count;
 
-            // 버튼 클릭 시 매니저가 넘겨준 콜백 실행
-            Button btn = row.GetComponent<Button>();
-            if (btn != null)
-            {
-                btn.onClick.AddListener(() => onEmployeeClickCallback?.Invoke(emp));
-            }
+        // 3. 현재 페이지 범위 계산
+        int startIndex = currentPage * ITEMS_PER_PAGE;
+        int count = Mathf.Min(ITEMS_PER_PAGE, totalCount - startIndex);
+
+        // 4. 해당 페이지의 직원만 생성
+        for (int i = 0; i < count; i++)
+        {
+            int dataIndex = startIndex + i;
+            if (dataIndex >= totalCount) break;
+
+            Employee emp = allEmployees[dataIndex];
+            CreateEmployeeRow(emp);
         }
     }
-    
-    void Update()
+
+    private void CreateEmployeeRow(Employee emp)
     {
-        // ESC나 우클릭으로 닫기 요청
-        if (Input.GetKeyDown(KeyCode.Escape) || Input.GetMouseButtonDown(1))
+        GameObject row = Instantiate(employeeRowPrefab, listContainer);
+        
+        // 이름 설정
+        TextMeshProUGUI nameText = row.GetComponentInChildren<TextMeshProUGUI>();
+        if(nameText != null) nameText.text = emp.Data.employeeName;
+
+        // 배경색 설정 (할당 여부)
+        Image bg = row.GetComponent<Image>();
+        bool isAssigned = currentOrder.IsWorkerAssigned(emp);
+        if (bg != null) bg.color = isAssigned ? assignedColor : unassignedColor;
+
+        // 클릭 이벤트 설정
+        Button btn = row.GetComponent<Button>();
+        if (btn != null)
         {
-            onCloseCallback?.Invoke();
+            btn.onClick.AddListener(() => onEmployeeClickCallback?.Invoke(emp));
         }
+    }
+
+    private void UpdateNavigationButtons()
+    {
+        int totalEmployees = EmployeeManager.instance.AllEmployees.Count;
+        // 전체 페이지 수 계산 (올림 처리)
+        int maxPage = Mathf.Max(0, Mathf.CeilToInt((float)totalEmployees / ITEMS_PER_PAGE) - 1);
+
+        // 버튼 활성화/비활성화 처리
+        if (prevButton != null) prevButton.interactable = (currentPage > 0);
+        if (nextButton != null) nextButton.interactable = (currentPage < maxPage);
+
+        // 페이지 텍스트 업데이트 (예: 1 / 3)
+        if (pageText != null)
+        {
+            pageText.text = $"{currentPage + 1} / {maxPage + 1}";
+        }
+    }
+
+    private void OnNextPage()
+    {
+        currentPage++;
+        RefreshUI();
+    }
+
+    private void OnPrevPage()
+    {
+        currentPage--;
+        RefreshUI();
     }
 }
