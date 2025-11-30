@@ -1299,8 +1299,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   groundTilemap: {fileID: 1241738023}
   itemDropParent: {fileID: 1549885618}
-  workOrderVisualPrefab: {fileID: 2020903644266035366, guid: a9214428892ba8142ad049ba5b20b425, type: 3}
   selectionBoxPrefab: {fileID: 0}
+  workOrderVisualPrefab: {fileID: 2020903644266035366, guid: a9214428892ba8142ad049ba5b20b425, type: 3}
   miningSelectionColor: {r: 1, g: 1, b: 0, a: 0.3}
   harvestSelectionColor: {r: 0, g: 1, b: 0, a: 0.3}
   demolishSelectionColor: {r: 1, g: 0, b: 0, a: 0.3}
