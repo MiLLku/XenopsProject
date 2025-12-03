@@ -11,31 +11,38 @@ public class EmployeeMovement : MonoBehaviour
     [Header("이동 설정")]
     [SerializeField] private float baseSpeed = 3f;
     [SerializeField] private float stoppingDistance = 0.1f;
-    
+    [SerializeField] private float tileTransitionSpeed = 5f; // 타일 간 이동 속도
+
     [Header("디버그")]
     [SerializeField] private bool showPath = true;
     [SerializeField] private bool showDebugLogs = false;
-    
+
     private Vector3 targetPosition;
     private bool isMoving = false;
     private Action onReachDestination;
     private Coroutine moveCoroutine;
-    
+
     // 타일 기반 경로
     private List<Vector2Int> currentPath;
     private int currentPathIndex = 0;
-    
+
     // 컴포넌트 참조
     private Rigidbody2D rb;
+    private Collider2D col;
     private Employee employee;
     private GameMap gameMap;
     private TilePathfinder pathfinder;
+
+    // 물리 상태 저장
+    private RigidbodyType2D originalBodyType;
+    private bool originalUseGravity;
     
     void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
+        col = GetComponent<Collider2D>();
         employee = GetComponent<Employee>();
-        
+
         // Rigidbody2D 설정
         if (rb != null)
         {
@@ -43,6 +50,15 @@ public class EmployeeMovement : MonoBehaviour
             rb.gravityScale = 0f;
             rb.freezeRotation = true;
             rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+
+            // 원본 물리 상태 저장
+            originalBodyType = rb.bodyType;
+            originalUseGravity = rb.gravityScale > 0;
+        }
+
+        if (col == null)
+        {
+            Debug.LogWarning("[EmployeeMovement] Collider2D가 없습니다. 추가해주세요.");
         }
     }
     
@@ -70,108 +86,176 @@ public class EmployeeMovement : MonoBehaviour
             Debug.LogError("[EmployeeMovement] Pathfinder가 초기화되지 않았습니다!");
             return;
         }
-        
+
         StopMoving();
-        
+
         // 월드 좌표를 타일 좌표로 변환
         Vector2Int currentTile = WorldToTile(transform.position);
         Vector2Int goalTile = WorldToTile(worldDestination);
-        
-        if (showDebugLogs)
-        {
-            Debug.Log($"[EmployeeMovement] 경로 탐색: {currentTile} -> {goalTile}");
-        }
-        
+
+        Debug.Log($"[EmployeeMovement] 이동 요청 - 현재 Transform: {transform.position}, 목표: {worldDestination}");
+        Debug.Log($"[EmployeeMovement] 경로 탐색: {currentTile} -> {goalTile}");
+
         // 경로 찾기
         currentPath = pathfinder.FindPath(currentTile, goalTile);
-        
+
         if (currentPath == null || currentPath.Count == 0)
         {
-            if (showDebugLogs)
-            {
-                Debug.LogWarning($"[EmployeeMovement] 경로를 찾을 수 없습니다: {currentTile} -> {goalTile}");
-            }
-            
+            Debug.LogWarning($"[EmployeeMovement] 경로를 찾을 수 없습니다: {currentTile} -> {goalTile}");
+
             // 경로를 찾지 못했을 때도 콜백 호출
             onComplete?.Invoke();
             return;
         }
-        
+
         targetPosition = worldDestination;
         onReachDestination = onComplete;
         currentPathIndex = 0;
         isMoving = true;
-        
-        if (showDebugLogs)
+
+        Debug.Log($"[EmployeeMovement] 경로 발견: {currentPath.Count}개 타일");
+        for (int i = 0; i < Mathf.Min(currentPath.Count, 5); i++)
         {
-            Debug.Log($"[EmployeeMovement] 경로 발견: {currentPath.Count}개 타일");
+            Debug.Log($"  경로[{i}]: {currentPath[i]}");
         }
-        
+
         moveCoroutine = StartCoroutine(FollowPathCoroutine());
     }
     
     /// <summary>
-    /// 경로를 따라 이동하는 코루틴
+    /// 경로를 따라 이동하는 코루틴 (노드 기반 이동)
     /// </summary>
     private IEnumerator FollowPathCoroutine()
     {
+        // 이동 시작: 물리 충돌 무시
+        EnablePhysicsForMovement(false);
+
         while (isMoving && currentPathIndex < currentPath.Count)
         {
+            Vector2Int currentTile = (currentPathIndex > 0) ? currentPath[currentPathIndex - 1] : WorldToTile(transform.position);
             Vector2Int nextTile = currentPath[currentPathIndex];
-            Vector3 nextWorldPos = TileToWorld(nextTile);
-            
-            // 다음 타일까지 이동
-            while (Vector3.Distance(transform.position, nextWorldPos) > stoppingDistance)
+
+            // 높이 차이 계산
+            int heightDiff = nextTile.y - currentTile.y;
+
+            if (showDebugLogs)
             {
-                // 현재 위치의 이동 속도 배율 가져오기
-                float speedMultiplier = GetCurrentSpeedMultiplier();
-                
-                // 이동
-                Vector3 direction = (nextWorldPos - transform.position).normalized;
-                float currentSpeed = baseSpeed * speedMultiplier;
-                Vector3 movement = direction * currentSpeed * Time.fixedDeltaTime;
-                
-                if (rb != null)
-                {
-                    rb.MovePosition(transform.position + movement);
-                }
-                else
-                {
-                    transform.position += movement;
-                }
-                
-                // 스프라이트 방향 전환
-                UpdateSpriteDirection(direction.x);
-                
-                yield return new WaitForFixedUpdate();
+                Debug.Log($"[EmployeeMovement] 타일 이동: {currentTile} -> {nextTile} (높이차: {heightDiff})");
             }
-            
+
+            // 노드 간 Lerp 이동
+            yield return MoveToTileCoroutine(nextTile, heightDiff);
+
             // 다음 타일로 이동
             currentPathIndex++;
         }
-        
-        // 최종 목표 지점까지 이동
-        while (Vector3.Distance(transform.position, targetPosition) > stoppingDistance)
+
+        // 최종 목표 지점으로 미세 조정
+        if (Vector3.Distance(transform.position, targetPosition) > stoppingDistance)
         {
-            Vector3 direction = (targetPosition - transform.position).normalized;
-            Vector3 movement = direction * baseSpeed * Time.fixedDeltaTime;
-            
-            if (rb != null)
+            yield return MoveToPositionCoroutine(targetPosition);
+        }
+
+        // 이동 완료: 물리 충돌 복구
+        EnablePhysicsForMovement(true);
+
+        // 목적지 도착
+        ReachDestination();
+    }
+
+    /// <summary>
+    /// 특정 타일로 Lerp 이동
+    /// </summary>
+    private IEnumerator MoveToTileCoroutine(Vector2Int targetTile, int heightDiff)
+    {
+        Vector3 startPos = transform.position;
+        Vector3 endPos = TileToWorld(targetTile);
+        float journeyLength = Vector3.Distance(startPos, endPos);
+        float startTime = Time.time;
+
+        Debug.Log($"[EmployeeMovement] Lerp 이동 시작: {startPos} -> {endPos} (거리: {journeyLength:F2})");
+
+        // 높이 차이가 있으면 이동 속도 조정
+        float speedModifier = 1f + Mathf.Abs(heightDiff) * 0.2f; // 높이 차이만큼 느려짐
+        float actualSpeed = tileTransitionSpeed / speedModifier;
+
+        int frameCount = 0;
+        while (Vector3.Distance(transform.position, endPos) > stoppingDistance)
+        {
+            float distCovered = (Time.time - startTime) * actualSpeed;
+            float fractionOfJourney = distCovered / journeyLength;
+
+            // Lerp로 부드럽게 이동
+            transform.position = Vector3.Lerp(startPos, endPos, fractionOfJourney);
+
+            // 스프라이트 방향 전환
+            UpdateSpriteDirection(endPos.x - startPos.x);
+
+            frameCount++;
+            if (frameCount % 10 == 0)
             {
-                rb.MovePosition(transform.position + movement);
+                Debug.Log($"[EmployeeMovement] 이동 중: {transform.position}, fraction: {fractionOfJourney:F2}");
+            }
+
+            yield return null;
+        }
+
+        // 정확히 목표 위치로 스냅
+        transform.position = endPos;
+        Debug.Log($"[EmployeeMovement] Lerp 이동 완료: {endPos}");
+    }
+
+    /// <summary>
+    /// 특정 월드 좌표로 Lerp 이동
+    /// </summary>
+    private IEnumerator MoveToPositionCoroutine(Vector3 targetPos)
+    {
+        Vector3 startPos = transform.position;
+        float journeyLength = Vector3.Distance(startPos, targetPos);
+        float startTime = Time.time;
+
+        while (Vector3.Distance(transform.position, targetPos) > stoppingDistance)
+        {
+            float distCovered = (Time.time - startTime) * tileTransitionSpeed;
+            float fractionOfJourney = distCovered / journeyLength;
+
+            transform.position = Vector3.Lerp(startPos, targetPos, fractionOfJourney);
+
+            UpdateSpriteDirection(targetPos.x - startPos.x);
+
+            yield return null;
+        }
+
+        transform.position = targetPos;
+    }
+
+    /// <summary>
+    /// 이동 중 물리 상태 제어
+    /// </summary>
+    private void EnablePhysicsForMovement(bool enable)
+    {
+        if (rb != null)
+        {
+            if (enable)
+            {
+                // 물리 복구
+                rb.bodyType = originalBodyType;
+                if (showDebugLogs)
+                {
+                    Debug.Log("[EmployeeMovement] 물리 충돌 복구");
+                }
             }
             else
             {
-                transform.position += movement;
+                // 물리 무시 (Kinematic으로 전환)
+                rb.bodyType = RigidbodyType2D.Kinematic;
+                rb.linearVelocity = Vector2.zero;
+                if (showDebugLogs)
+                {
+                    Debug.Log("[EmployeeMovement] 물리 충돌 무시 (Kinematic)");
+                }
             }
-            
-            UpdateSpriteDirection(direction.x);
-            
-            yield return new WaitForFixedUpdate();
         }
-        
-        // 목적지 도착
-        ReachDestination();
     }
     
     /// <summary>
@@ -237,12 +321,15 @@ public class EmployeeMovement : MonoBehaviour
             StopCoroutine(moveCoroutine);
             moveCoroutine = null;
         }
-        
+
         isMoving = false;
         currentPath = null;
         currentPathIndex = 0;
         onReachDestination = null;
-        
+
+        // 물리 복구
+        EnablePhysicsForMovement(true);
+
         if (rb != null)
         {
             rb.linearVelocity = Vector2.zero;
@@ -251,23 +338,26 @@ public class EmployeeMovement : MonoBehaviour
     
     /// <summary>
     /// 월드 좌표를 타일 좌표로 변환합니다.
+    /// 직원의 발 위치(y)에서 1을 빼서 실제 타일 좌표를 얻습니다.
     /// </summary>
     private Vector2Int WorldToTile(Vector3 worldPos)
     {
+        // 직원은 타일 위(y+1)에 있으므로, 타일 좌표는 y-1
         return new Vector2Int(
             Mathf.FloorToInt(worldPos.x),
-            Mathf.FloorToInt(worldPos.y)
+            Mathf.FloorToInt(worldPos.y - 1f)  // ★ 수정: y-1
         );
     }
-    
+
     /// <summary>
     /// 타일 좌표를 월드 좌표로 변환합니다.
     /// 직원은 타일 위를 걸어다니므로 y+1 위치로 이동합니다.
+    /// 직원의 스프라이트 피벗이 중심(0.5)이고 높이가 2이므로, y+2 위치가 직원 중심입니다.
     /// </summary>
     private Vector3 TileToWorld(Vector2Int tilePos)
     {
-        // 타일의 중심이 아닌, 타일 위 (발판)로 변환
-        return new Vector3(tilePos.x + 0.5f, tilePos.y + 1f, 0);
+        // 타일 위 (y+1)에 직원 발이 오도록, 직원 중심은 y+2
+        return new Vector3(tilePos.x + 0.5f, tilePos.y + 2f, 0);
     }
     
     // 장애물 회피

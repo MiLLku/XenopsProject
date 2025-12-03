@@ -257,10 +257,10 @@ public class Employee : MonoBehaviour
     {
         List<Vector3Int> workablePositions = new List<Vector3Int>();
 
-        // 직원의 발 위치 (바닥 타일)
+        // 직원의 발 위치 (바닥 타일) - transform.position은 중심이므로 y-2
         Vector3Int footPosition = new Vector3Int(
             Mathf.FloorToInt(transform.position.x),
-            Mathf.FloorToInt(transform.position.y),
+            Mathf.FloorToInt(transform.position.y - 2f),
             0
         );
 
@@ -288,9 +288,10 @@ public class Employee : MonoBehaviour
     /// </summary>
     public bool IsPositionInWorkRange(Vector3Int position)
     {
+        // 직원의 발 위치 계산 - transform.position은 중심이므로 y-2
         Vector3Int footPosition = new Vector3Int(
             Mathf.FloorToInt(transform.position.x),
-            Mathf.FloorToInt(transform.position.y),
+            Mathf.FloorToInt(transform.position.y - 2f),
             0
         );
 
@@ -388,13 +389,14 @@ public class Employee : MonoBehaviour
             0
         );
 
+        // 직원의 발 위치 계산 (transform.position은 중심이므로 y-1)
         Vector3Int currentPos = new Vector3Int(
             Mathf.FloorToInt(transform.position.x),
-            Mathf.FloorToInt(transform.position.y),
+            Mathf.FloorToInt(transform.position.y - 2f), // 중심에서 발 위치로 변환
             0
         );
 
-        Debug.Log($"[Employee] {employeeData.employeeName} - 현재 위치: {currentPos}, 타겟 위치: {targetTilePos}, Transform: {transform.position}");
+        Debug.Log($"[Employee] {employeeData.employeeName} - 현재 발 위치: {currentPos}, 타겟 위치: {targetTilePos}, Transform: {transform.position}");
 
         bool inRange = IsPositionInWorkRange(targetTilePos);
         Debug.Log($"[Employee] {employeeData.employeeName} - 작업 범위 내: {inRange}");
@@ -436,9 +438,10 @@ public class Employee : MonoBehaviour
     /// </summary>
     private Vector3 FindWorkablePositionForTarget(Vector3Int targetTilePos)
     {
+        // 직원의 발 위치 계산
         Vector3Int currentPos = new Vector3Int(
             Mathf.FloorToInt(transform.position.x),
-            Mathf.FloorToInt(transform.position.y),
+            Mathf.FloorToInt(transform.position.y - 2f), // 중심에서 발 위치로 변환
             0
         );
 
@@ -478,8 +481,8 @@ public class Employee : MonoBehaviour
             }
         }
 
-        // 타일 위로 변환 (y + 1)
-        return new Vector3(bestPos.x + 0.5f, bestPos.y + 1f, 0);
+        // 타일 위로 변환 (직원 중심이 y + 2가 되도록)
+        return new Vector3(bestPos.x + 0.5f, bestPos.y + 2f, 0);
     }
     
     private void StartWork(IWorkTarget target)
