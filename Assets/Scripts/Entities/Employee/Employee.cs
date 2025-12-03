@@ -54,7 +54,9 @@ public class Employee : MonoBehaviour
         spriteRenderer = GetComponent<SpriteRenderer>();
         aiController = GetComponent<EmployeeAI>() ?? gameObject.AddComponent<EmployeeAI>();
         movement = GetComponent<EmployeeMovement>() ?? gameObject.AddComponent<EmployeeMovement>();
-        
+
+        Debug.Log($"[Employee] {name} Awake - Movement 컴포넌트: {(movement != null ? "OK" : "NULL")}");
+
         InitializeWorkPriorities();
     }
     
@@ -243,15 +245,77 @@ public class Employee : MonoBehaviour
     }
     
     #region 작업 시스템
-    
+
+    /// <summary>
+    /// 직원의 현재 위치에서 작업 가능한 타일 범위를 반환합니다.
+    /// 직원은 세로 2칸 크기이며, 현재 바닥 기준으로:
+    /// - 좌우 1칸
+    /// - 상위 3칸 (머리 위 1칸 포함)
+    /// - 하단 1칸
+    /// </summary>
+    public List<Vector3Int> GetWorkableRange()
+    {
+        List<Vector3Int> workablePositions = new List<Vector3Int>();
+
+        // 직원의 발 위치 (바닥 타일)
+        Vector3Int footPosition = new Vector3Int(
+            Mathf.FloorToInt(transform.position.x),
+            Mathf.FloorToInt(transform.position.y),
+            0
+        );
+
+        // 좌우 1칸, 상위 3칸, 하위 1칸 범위
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            for (int dy = -1; dy <= 3; dy++)
+            {
+                Vector3Int targetPos = footPosition + new Vector3Int(dx, dy, 0);
+
+                // 맵 범위 내인지 확인
+                if (targetPos.x >= 0 && targetPos.x < GameMap.MAP_WIDTH &&
+                    targetPos.y >= 0 && targetPos.y < GameMap.MAP_HEIGHT)
+                {
+                    workablePositions.Add(targetPos);
+                }
+            }
+        }
+
+        return workablePositions;
+    }
+
+    /// <summary>
+    /// 특정 위치가 현재 직원의 작업 범위 내에 있는지 확인합니다.
+    /// </summary>
+    public bool IsPositionInWorkRange(Vector3Int position)
+    {
+        Vector3Int footPosition = new Vector3Int(
+            Mathf.FloorToInt(transform.position.x),
+            Mathf.FloorToInt(transform.position.y),
+            0
+        );
+
+        int dx = Mathf.Abs(position.x - footPosition.x);
+        int dy = position.y - footPosition.y;
+
+        // 좌우 1칸 이내, 상위 3칸 ~ 하위 1칸 범위
+        bool inRange = dx <= 1 && dy >= -1 && dy <= 3;
+
+        if (showDebugInfo && inRange)
+        {
+            Debug.Log($"[Employee] {employeeData.employeeName} - 작업 범위 내: 직원 위치 {footPosition}, 타겟 위치 {position}, dx={dx}, dy={dy}");
+        }
+
+        return inRange;
+    }
+
     public bool CanPerformWork(WorkType type)
     {
         if (employeeData == null || employeeData.abilities == null) return false;
-        
+
         // 우선순위에서 비활성화된 작업은 불가
         var priority = workPriorities.FirstOrDefault(w => w.workType == type);
         if (priority != null && !priority.enabled) return false;
-        
+
         return employeeData.abilities.CanPerformWork(type);
     }
     
@@ -298,37 +362,124 @@ public class Employee : MonoBehaviour
     /// </summary>
     public void AssignWork(WorkOrder workOrder, IWorkTarget target)
     {
-        if (target == null || workOrder == null || 
-            currentState == EmployeeState.Dead || currentState == EmployeeState.MentalBreak) 
+        if (target == null || workOrder == null ||
+            currentState == EmployeeState.Dead || currentState == EmployeeState.MentalBreak)
             return;
-        
+
         // 현재 작업 취소
         if (currentWorkTarget != null)
         {
             CancelWork();
         }
-        
+
         currentWorkOrder = workOrder;
         currentWorkTarget = target;
-        SetState(EmployeeState.Moving);
-        
+
         if (showDebugInfo)
         {
             Debug.Log($"[Employee] {employeeData.employeeName}에게 작업 할당: {target.GetWorkType()} at {target.GetWorkPosition()}");
         }
-        
-        // 작업 위치로 이동
-        if (movement != null)
+
+        // 작업 대상의 타일 위치
+        Vector3 targetPos = target.GetWorkPosition();
+        Vector3Int targetTilePos = new Vector3Int(
+            Mathf.FloorToInt(targetPos.x),
+            Mathf.FloorToInt(targetPos.y),
+            0
+        );
+
+        Vector3Int currentPos = new Vector3Int(
+            Mathf.FloorToInt(transform.position.x),
+            Mathf.FloorToInt(transform.position.y),
+            0
+        );
+
+        Debug.Log($"[Employee] {employeeData.employeeName} - 현재 위치: {currentPos}, 타겟 위치: {targetTilePos}, Transform: {transform.position}");
+
+        bool inRange = IsPositionInWorkRange(targetTilePos);
+        Debug.Log($"[Employee] {employeeData.employeeName} - 작업 범위 내: {inRange}");
+
+        if (inRange)
         {
-            movement.MoveTo(target.GetWorkPosition(), () => {
-                StartWork(target);
-            });
+            // 작업 범위 내에 있으면 즉시 작업 시작
+            Debug.Log($"[Employee] {employeeData.employeeName}: 작업 범위 내 타겟, 즉시 작업 시작");
+            StartWork(target);
         }
         else
         {
-            // movement가 없으면 즉시 작업 시작 (테스트용)
-            StartWork(target);
+            // 작업 범위 밖이면 작업 가능한 위치로 이동
+            SetState(EmployeeState.Moving);
+
+            if (movement != null)
+            {
+                // 작업 대상 근처의 작업 가능한 위치 찾기
+                Vector3 workPosition = FindWorkablePositionForTarget(targetTilePos);
+
+                Debug.Log($"[Employee] {employeeData.employeeName}: 작업 위치로 이동 {workPosition}");
+
+                movement.MoveTo(workPosition, () => {
+                    Debug.Log($"[Employee] {employeeData.employeeName}: 목적지 도착, 작업 시작");
+                    StartWork(target);
+                });
+            }
+            else
+            {
+                // movement가 없으면 즉시 작업 시작 (테스트용)
+                Debug.LogWarning($"[Employee] {employeeData.employeeName}: Movement 컴포넌트 없음! 즉시 작업 시작");
+                StartWork(target);
+            }
         }
+    }
+
+    /// <summary>
+    /// 작업 대상 근처에서 실제로 작업할 수 있는 위치를 찾습니다.
+    /// </summary>
+    private Vector3 FindWorkablePositionForTarget(Vector3Int targetTilePos)
+    {
+        Vector3Int currentPos = new Vector3Int(
+            Mathf.FloorToInt(transform.position.x),
+            Mathf.FloorToInt(transform.position.y),
+            0
+        );
+
+        // 작업 대상 주변에서 작업 가능한 위치들
+        Vector3Int[] candidateOffsets = new Vector3Int[]
+        {
+            new Vector3Int(-1, 0, 0),  // 왼쪽
+            new Vector3Int(1, 0, 0),   // 오른쪽
+            new Vector3Int(0, -1, 0),  // 아래
+            new Vector3Int(-1, -1, 0), // 왼쪽 아래
+            new Vector3Int(1, -1, 0),  // 오른쪽 아래
+            new Vector3Int(-1, 1, 0),  // 왼쪽 위
+            new Vector3Int(1, 1, 0),   // 오른쪽 위
+            new Vector3Int(0, 1, 0),   // 위
+        };
+
+        Vector3Int bestPos = targetTilePos;
+        float minDist = float.MaxValue;
+
+        foreach (var offset in candidateOffsets)
+        {
+            Vector3Int candidatePos = targetTilePos + offset;
+
+            // 해당 위치에서 타겟을 작업할 수 있는지 확인
+            int dx = Mathf.Abs(targetTilePos.x - candidatePos.x);
+            int dy = targetTilePos.y - candidatePos.y;
+
+            // 작업 범위 내인지 확인 (좌우 1칸, 상 3칸, 하 1칸)
+            if (dx <= 1 && dy >= -1 && dy <= 3)
+            {
+                float dist = Vector3Int.Distance(currentPos, candidatePos);
+                if (dist < minDist)
+                {
+                    minDist = dist;
+                    bestPos = candidatePos;
+                }
+            }
+        }
+
+        // 타일 위로 변환 (y + 1)
+        return new Vector3(bestPos.x + 0.5f, bestPos.y + 1f, 0);
     }
     
     private void StartWork(IWorkTarget target)
@@ -385,20 +536,40 @@ public class Employee : MonoBehaviour
         {
             Debug.Log($"[Employee] {employeeData.employeeName}이(가) {currentWork} 작업을 완료했습니다.");
         }
-        
-        // WorkManager에 알림
+
+        // WorkManager에 알림 (다음 작업 할당을 위해 currentWorkOrder 유지)
         if (WorkManager.instance != null && currentWorkTarget != null && currentWorkOrder != null)
         {
-            WorkManager.instance.OnWorkerCompletedTarget(this, currentWorkTarget, currentWorkOrder);
+            // 임시로 저장
+            IWorkTarget completedTarget = currentWorkTarget;
+            WorkOrder completedOrder = currentWorkOrder;
+
+            // 현재 작업 대상만 초기화 (WorkOrder는 유지)
+            currentWorkTarget = null;
+            currentWork = WorkType.None;
+            workProgress = 0f;
+            currentWorkCoroutine = null;
+
+            // WorkManager에 알림 (다음 작업 할당 시도)
+            WorkManager.instance.OnWorkerCompletedTarget(this, completedTarget, completedOrder);
+
+            // WorkManager가 다음 작업을 할당하지 않았으면 완전히 초기화
+            if (currentWorkTarget == null && currentWorkOrder == completedOrder)
+            {
+                currentWorkOrder = null;
+                SetState(EmployeeState.Idle);
+            }
         }
-        
-        currentWorkTarget = null;
-        currentWorkOrder = null;
-        currentWork = WorkType.None;
-        workProgress = 0f;
-        currentWorkCoroutine = null;
-        
-        SetState(EmployeeState.Idle);
+        else
+        {
+            // WorkManager가 없으면 즉시 초기화
+            currentWorkTarget = null;
+            currentWorkOrder = null;
+            currentWork = WorkType.None;
+            workProgress = 0f;
+            currentWorkCoroutine = null;
+            SetState(EmployeeState.Idle);
+        }
     }
     
     public void CancelWork()

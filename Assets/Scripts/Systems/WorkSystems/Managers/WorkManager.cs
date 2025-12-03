@@ -156,11 +156,13 @@ public class WorkManager : DestroySingleton<WorkManager>
     
     /// <summary>
     /// 직원에게 구체적인 작업 대상을 할당합니다.
+    /// 1순위: 현재 위치에서 작업 가능한 범위 내 타겟
+    /// 2순위: 가장 가까운 타겟
     /// </summary>
     private bool AssignSpecificTarget(Employee worker, WorkOrder order)
     {
         var availableTargets = order.GetAvailableTargets();
-        
+
         if (availableTargets.Count == 0)
         {
             if (showDebugInfo)
@@ -169,19 +171,115 @@ public class WorkManager : DestroySingleton<WorkManager>
             }
             return false;
         }
-        
-        // 가장 가까운 작업 대상 찾기
-        IWorkTarget closestTarget = availableTargets
-            .OrderBy(t => Vector3.Distance(worker.transform.position, t.GetWorkPosition()))
-            .First();
-        
+
+        IWorkTarget selectedTarget = null;
+        Vector3 workerPosition = worker.transform.position;
+
+        // 1순위: 현재 위치에서 작업 가능한 범위 내 타겟 찾기
+        foreach (var target in availableTargets)
+        {
+            Vector3 targetPos = target.GetWorkPosition();
+            Vector3Int targetTilePos = new Vector3Int(
+                Mathf.FloorToInt(targetPos.x),
+                Mathf.FloorToInt(targetPos.y),
+                0
+            );
+
+            if (worker.IsPositionInWorkRange(targetTilePos))
+            {
+                selectedTarget = target;
+                if (showDebugInfo)
+                {
+                    Debug.Log($"[WorkManager] {worker.Data.employeeName}의 작업 범위 내 타겟 발견: {targetTilePos}");
+                }
+                break;
+            }
+        }
+
+        // 2순위: 작업 범위 내에 없으면 가장 가까운 타겟 선택
+        if (selectedTarget == null)
+        {
+            selectedTarget = availableTargets
+                .OrderBy(t =>
+                {
+                    Vector3 targetPos = t.GetWorkPosition();
+                    Vector3Int targetTilePos = new Vector3Int(
+                        Mathf.FloorToInt(targetPos.x),
+                        Mathf.FloorToInt(targetPos.y),
+                        0
+                    );
+
+                    // 작업 가능한 위치까지의 거리 계산
+                    Vector3 workablePos = FindWorkablePositionNearTarget(workerPosition, targetTilePos);
+                    return Vector3.Distance(workerPosition, workablePos);
+                })
+                .First();
+
+            if (showDebugInfo)
+            {
+                Debug.Log($"[WorkManager] {worker.Data.employeeName}에게 가장 가까운 타겟 할당: {selectedTarget.GetWorkPosition()}");
+            }
+        }
+
         // 작업물에 할당 기록
-        order.AssignTargetToWorker(worker, closestTarget);
-        
+        order.AssignTargetToWorker(worker, selectedTarget);
+
         // 직원에게 작업 할당
-        worker.AssignWork(order, closestTarget);
-        
+        worker.AssignWork(order, selectedTarget);
+
         return true;
+    }
+
+    /// <summary>
+    /// 작업 대상 근처에서 직원이 실제로 서 있을 수 있는 위치를 찾습니다.
+    /// </summary>
+    private Vector3 FindWorkablePositionNearTarget(Vector3 workerPos, Vector3Int targetTilePos)
+    {
+        // 작업 대상 타일 주변 8방향 + 상하 위치 확인
+        Vector3Int[] offsets = new Vector3Int[]
+        {
+            new Vector3Int(-1, 0, 0),  // 왼쪽
+            new Vector3Int(1, 0, 0),   // 오른쪽
+            new Vector3Int(0, -1, 0),  // 아래
+            new Vector3Int(-1, -1, 0), // 왼쪽 아래
+            new Vector3Int(1, -1, 0),  // 오른쪽 아래
+            new Vector3Int(-1, 1, 0),  // 왼쪽 위
+            new Vector3Int(1, 1, 0),   // 오른쪽 위
+            new Vector3Int(0, 1, 0),   // 위
+        };
+
+        Vector3Int workerTilePos = new Vector3Int(
+            Mathf.FloorToInt(workerPos.x),
+            Mathf.FloorToInt(workerPos.y),
+            0
+        );
+
+        // 현재 위치에서 가장 가까운 작업 가능 위치 찾기
+        Vector3Int bestPos = targetTilePos;
+        float minDist = float.MaxValue;
+
+        foreach (var offset in offsets)
+        {
+            Vector3Int checkPos = targetTilePos + offset;
+
+            // 해당 위치에서 타겟을 작업할 수 있는지 확인
+            int dx = Mathf.Abs(targetTilePos.x - checkPos.x);
+            int dy = targetTilePos.y - checkPos.y;
+
+            // 작업 범위 내인지 확인 (좌우 1칸, 상 3칸, 하 1칸)
+            if (dx <= 1 && dy >= -1 && dy <= 3)
+            {
+                float dist = Vector3Int.Distance(workerTilePos, checkPos);
+                if (dist < minDist)
+                {
+                    minDist = dist;
+                    bestPos = checkPos;
+                }
+            }
+        }
+
+        // 타일 중심이 아닌 타일 위 (y + 1)로 반환
+        return new Vector3(bestPos.x + 0.5f, bestPos.y + 1f, 0);
     }
     
     #endregion
@@ -224,11 +322,27 @@ public class WorkManager : DestroySingleton<WorkManager>
         }
         
         // 같은 작업물에서 다음 작업 대상 할당
+        if (showDebugInfo)
+        {
+            Debug.Log($"[WorkManager] {worker.Data.employeeName}에게 다음 작업 대상 할당 시도...");
+        }
+
         if (!AssignSpecificTarget(worker, order))
         {
             // 더 이상 할당할 작업이 없으면 작업자 해제
+            if (showDebugInfo)
+            {
+                Debug.Log($"[WorkManager] {worker.Data.employeeName}: 더 이상 할당할 작업 없음. 작업자 해제.");
+            }
             order.UnassignWorker(worker);
             employeeToOrderMap.Remove(worker);
+        }
+        else
+        {
+            if (showDebugInfo)
+            {
+                Debug.Log($"[WorkManager] {worker.Data.employeeName}에게 다음 작업 할당 성공!");
+            }
         }
     }
     

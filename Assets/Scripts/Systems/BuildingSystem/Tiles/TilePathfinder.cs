@@ -137,67 +137,148 @@ public class TilePathfinder
     
     /// <summary>
     /// 현재 위치에서 이동 가능한 이웃 타일들을 반환합니다.
+    /// 직원은 높이 차이 2칸까지 이동 가능합니다.
     /// </summary>
     private List<Vector2Int> GetNeighbors(Vector2Int pos)
     {
         List<Vector2Int> neighbors = new List<Vector2Int>();
-        
-        // 4방향 이동
-        Vector2Int[] directions = new Vector2Int[]
+
+        // 수평 이동 (좌우)
+        Vector2Int[] horizontalDirs = new Vector2Int[]
         {
             new Vector2Int(1, 0),   // 오른쪽
             new Vector2Int(-1, 0),  // 왼쪽
-            new Vector2Int(0, 1),   // 위
-            new Vector2Int(0, -1)   // 아래
         };
-        
-        foreach (var dir in directions)
+
+        foreach (var dir in horizontalDirs)
         {
-            Vector2Int neighbor = pos + dir;
-            
-            if (CanMoveTo(pos, neighbor))
+            // 같은 높이로 이동
+            Vector2Int sameLevel = pos + dir;
+            if (CanMoveTo(pos, sameLevel))
             {
-                neighbors.Add(neighbor);
+                neighbors.Add(sameLevel);
+            }
+
+            // 1칸 위로 이동
+            Vector2Int upOne = pos + dir + new Vector2Int(0, 1);
+            if (CanMoveTo(pos, upOne))
+            {
+                neighbors.Add(upOne);
+            }
+
+            // 2칸 위로 이동
+            Vector2Int upTwo = pos + dir + new Vector2Int(0, 2);
+            if (CanMoveTo(pos, upTwo))
+            {
+                neighbors.Add(upTwo);
+            }
+
+            // 1칸 아래로 이동
+            Vector2Int downOne = pos + dir + new Vector2Int(0, -1);
+            if (CanMoveTo(pos, downOne))
+            {
+                neighbors.Add(downOne);
+            }
+
+            // 2칸 아래로 이동
+            Vector2Int downTwo = pos + dir + new Vector2Int(0, -2);
+            if (CanMoveTo(pos, downTwo))
+            {
+                neighbors.Add(downTwo);
             }
         }
-        
+
+        // 수직 이동 (사다리)
+        Vector2Int up = pos + new Vector2Int(0, 1);
+        if (CanMoveTo(pos, up))
+        {
+            neighbors.Add(up);
+        }
+
+        Vector2Int down = pos + new Vector2Int(0, -1);
+        if (CanMoveTo(pos, down))
+        {
+            neighbors.Add(down);
+        }
+
         return neighbors;
     }
     
     /// <summary>
     /// 한 타일에서 다른 타일로 이동할 수 있는지 확인합니다.
+    /// 직원은 높이 차이 2칸까지 올라가거나 내려갈 수 있습니다.
     /// </summary>
     private bool CanMoveTo(Vector2Int from, Vector2Int to)
     {
         if (!IsInBounds(to))
             return false;
-        
+
         // 목표 위치가 유효한지 확인 (2칸 높이 필요)
         if (!IsValidPosition(to))
             return false;
-        
-        int fromTileId = gameMap.TileGrid[from.x, from.y];
-        int toTileId = gameMap.TileGrid[to.x, to.y];
-        
-        // 수평 이동
-        if (from.y == to.y)
+
+        int heightDiff = to.y - from.y;
+        int horizontalDiff = Mathf.Abs(to.x - from.x);
+
+        // 순수 수평 이동 (같은 높이)
+        if (heightDiff == 0 && horizontalDiff == 1)
         {
             return CanWalkHorizontally(from, to);
         }
-        
-        // 수직 이동 (위로)
-        if (to.y > from.y)
+
+        // 대각선 이동 (수평 1칸 + 높이 차이)
+        if (horizontalDiff == 1 && Mathf.Abs(heightDiff) <= 2)
         {
-            return CanClimbUp(from, to);
+            return CanMoveDiagonal(from, to, heightDiff);
         }
-        
-        // 수직 이동 (아래로)
-        if (to.y < from.y)
+
+        // 순수 수직 이동 (사다리)
+        if (horizontalDiff == 0 && Mathf.Abs(heightDiff) == 1)
         {
-            return CanClimbDown(from, to);
+            if (heightDiff > 0)
+                return CanClimbUp(from, to);
+            else
+                return CanClimbDown(from, to);
         }
-        
+
         return false;
+    }
+
+    /// <summary>
+    /// 대각선 이동 (높이 차이 포함)이 가능한지 확인합니다.
+    /// </summary>
+    private bool CanMoveDiagonal(Vector2Int from, Vector2Int to, int heightDiff)
+    {
+        // 목표 위치가 유효한지 먼저 확인
+        if (!IsValidPosition(to))
+            return false;
+
+        // 높이 차이가 2칸 이하인지 확인
+        if (Mathf.Abs(heightDiff) > 2)
+            return false;
+
+        // 위로 올라가는 경우
+        if (heightDiff > 0)
+        {
+            // 중간 경로에 블록이 없어야 함
+            for (int y = from.y + 1; y <= to.y; y++)
+            {
+                // 머리 부분 (2칸 높이) 확인
+                if (!IsSpaceClear(to.x, y + EMPLOYEE_HEIGHT - 1))
+                    return false;
+            }
+        }
+
+        // 아래로 내려가는 경우 - 자유 낙하 가능
+        // 단, 목표 위치에 발판이 있어야 함
+        if (heightDiff < 0)
+        {
+            // 2칸 이상 떨어지는 것은 불가
+            if (Mathf.Abs(heightDiff) > 2)
+                return false;
+        }
+
+        return true;
     }
     
     /// <summary>
@@ -328,11 +409,12 @@ public class TilePathfinder
     
     /// <summary>
     /// 이동 비용을 계산합니다.
+    /// 높이 차이에 따라 추가 시간이 부여됩니다.
     /// </summary>
     private float GetMovementCost(Vector2Int from, Vector2Int to)
     {
         float baseCost = 1f;
-        
+
         // 바닥 타일이 있으면 그 속도 배율 적용
         FloorTile floorTile = FloorTile.GetFloorTileAt(to);
         if (floorTile != null)
@@ -343,13 +425,15 @@ public class TilePathfinder
                 baseCost = baseCost / speedMultiplier;
             }
         }
-        
-        // 수직 이동은 추가 비용
-        if (from.y != to.y)
+
+        // 수직 이동은 높이 차이만큼 추가 비용
+        int heightDifference = Mathf.Abs(to.y - from.y);
+        if (heightDifference > 0)
         {
-            baseCost *= 1.5f;
+            // 높이 1칸당 기본 이동 비용 1을 추가
+            baseCost += heightDifference * 1f;
         }
-        
+
         return baseCost;
     }
     

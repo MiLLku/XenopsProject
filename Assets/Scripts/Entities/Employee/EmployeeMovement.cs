@@ -261,11 +261,13 @@ public class EmployeeMovement : MonoBehaviour
     }
     
     /// <summary>
-    /// 타일 좌표를 월드 좌표(타일 중심)로 변환합니다.
+    /// 타일 좌표를 월드 좌표로 변환합니다.
+    /// 직원은 타일 위를 걸어다니므로 y+1 위치로 이동합니다.
     /// </summary>
     private Vector3 TileToWorld(Vector2Int tilePos)
     {
-        return new Vector3(tilePos.x + 0.5f, tilePos.y + 0.5f, 0);
+        // 타일의 중심이 아닌, 타일 위 (발판)로 변환
+        return new Vector3(tilePos.x + 0.5f, tilePos.y + 1f, 0);
     }
     
     // 장애물 회피

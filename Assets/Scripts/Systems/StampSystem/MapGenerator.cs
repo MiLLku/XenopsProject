@@ -256,13 +256,15 @@ public class MapGenerator : DestroySingleton<MapGenerator>
             Debug.LogError("[MapGenerator] EmployeeManager를 찾을 수 없습니다!");
             return;
         }
-    
-        Vector3 spawnPoint = new Vector3(x + 0.5f, y, 0);
+
+        // 직원은 바닥 위에 스폰되어야 함 (y+1이 발 위치)
+        // y는 스폰 상자가 있는 위치이므로, 그 위에 스폰
+        Vector3 spawnPoint = new Vector3(x + 0.5f, y + 3, 0);
         EmployeeManager.instance.SetSpawnPoint(spawnPoint);
-    
+
         // 초기 직원들 스폰
         EmployeeManager.instance.SpawnInitialEmployees();
-    
+
         Debug.Log($"[MapGenerator] 직원 스폰 지점 설정 완료: {spawnPoint}");
     }
     #endregion

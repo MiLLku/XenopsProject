@@ -13,7 +13,8 @@ public class MiningOrder : IWorkTarget
     public Employee assignedWorker;
     
     // IWorkTarget 구현
-    public Vector3 GetWorkPosition() => new Vector3(position.x + 0.5f, position.y + 0.5f, 0);
+    // 채광할 타일의 타일 좌표를 반환 (직원은 작업 범위 내에서 작업)
+    public Vector3 GetWorkPosition() => new Vector3(position.x, position.y, 0);
     public WorkType GetWorkType() => WorkType.Mining;
     public float GetWorkTime() => 3f;
     public bool IsWorkAvailable() => !completed;
