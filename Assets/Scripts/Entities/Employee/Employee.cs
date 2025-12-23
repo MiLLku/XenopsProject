@@ -285,26 +285,27 @@ public class Employee : MonoBehaviour
 
     /// <summary>
     /// 특정 위치가 현재 직원의 작업 범위 내에 있는지 확인합니다.
+    /// 직원이 서 있는 타일 기준으로 좌우 1칸, 상 3칸, 하 1칸
     /// </summary>
     public bool IsPositionInWorkRange(Vector3Int position)
     {
-        // 직원의 발 위치 계산 - transform.position은 중심이므로 y-2
-        Vector3Int footPosition = new Vector3Int(
+        // 직원이 서 있는 타일 계산
+        // transform.position.y는 직원 중심 (높이 2칸의 중심)
+        // 직원 중심 = 서 있는 타일 y + 2, 따라서 서 있는 타일 = 중심 - 2
+        Vector3Int standingTile = new Vector3Int(
             Mathf.FloorToInt(transform.position.x),
-            Mathf.FloorToInt(transform.position.y - 2f),
+            Mathf.FloorToInt(transform.position.y) - 2,
             0
         );
 
-        int dx = Mathf.Abs(position.x - footPosition.x);
-        int dy = position.y - footPosition.y;
+        int dx = Mathf.Abs(position.x - standingTile.x);
+        int dy = position.y - standingTile.y;
 
         // 좌우 1칸 이내, 상위 3칸 ~ 하위 1칸 범위
         bool inRange = dx <= 1 && dy >= -1 && dy <= 3;
 
-        if (showDebugInfo && inRange)
-        {
-            Debug.Log($"[Employee] {employeeData.employeeName} - 작업 범위 내: 직원 위치 {footPosition}, 타겟 위치 {position}, dx={dx}, dy={dy}");
-        }
+        // 항상 로그 출력 (디버그용)
+        Debug.Log($"[Employee] {employeeData.employeeName} - 범위 체크: 서있는 타일 {standingTile}, 타겟 {position}, dx={dx}, dy={dy}, inRange={inRange}");
 
         return inRange;
     }
@@ -410,13 +411,20 @@ public class Employee : MonoBehaviour
         else
         {
             // 작업 범위 밖이면 작업 가능한 위치로 이동
-            SetState(EmployeeState.Moving);
-
             if (movement != null)
             {
                 // 작업 대상 근처의 작업 가능한 위치 찾기
                 Vector3 workPosition = FindWorkablePositionForTarget(targetTilePos);
 
+                // 작업 가능한 위치를 찾지 못한 경우
+                if (workPosition == Vector3.zero)
+                {
+                    Debug.LogWarning($"[Employee] {employeeData.employeeName}: 작업 가능한 위치 없음, 작업 취소");
+                    CancelWork();
+                    return;
+                }
+
+                SetState(EmployeeState.Moving);
                 Debug.Log($"[Employee] {employeeData.employeeName}: 작업 위치로 이동 {workPosition}");
 
                 movement.MoveTo(workPosition, () => {
@@ -426,63 +434,127 @@ public class Employee : MonoBehaviour
             }
             else
             {
-                // movement가 없으면 즉시 작업 시작 (테스트용)
-                Debug.LogWarning($"[Employee] {employeeData.employeeName}: Movement 컴포넌트 없음! 즉시 작업 시작");
-                StartWork(target);
+                // movement가 없으면 작업 불가
+                Debug.LogWarning($"[Employee] {employeeData.employeeName}: Movement 컴포넌트 없음!");
+                CancelWork();
             }
         }
     }
 
     /// <summary>
     /// 작업 대상 근처에서 실제로 작업할 수 있는 위치를 찾습니다.
+    /// 휴리스틱 정렬: 거리, 도달 가능성, 높이 차이를 고려합니다.
     /// </summary>
     private Vector3 FindWorkablePositionForTarget(Vector3Int targetTilePos)
     {
         // 직원의 발 위치 계산
         Vector3Int currentPos = new Vector3Int(
             Mathf.FloorToInt(transform.position.x),
-            Mathf.FloorToInt(transform.position.y - 2f), // 중심에서 발 위치로 변환
+            Mathf.FloorToInt(transform.position.y - 2f),
             0
         );
 
-        // 작업 대상 주변에서 작업 가능한 위치들
-        Vector3Int[] candidateOffsets = new Vector3Int[]
+        // TilePathfinder 가져오기
+        TilePathfinder pathfinder = null;
+        if (MapGenerator.instance != null)
         {
-            new Vector3Int(-1, 0, 0),  // 왼쪽
-            new Vector3Int(1, 0, 0),   // 오른쪽
-            new Vector3Int(0, -1, 0),  // 아래
-            new Vector3Int(-1, -1, 0), // 왼쪽 아래
-            new Vector3Int(1, -1, 0),  // 오른쪽 아래
-            new Vector3Int(-1, 1, 0),  // 왼쪽 위
-            new Vector3Int(1, 1, 0),   // 오른쪽 위
-            new Vector3Int(0, 1, 0),   // 위
-        };
-
-        Vector3Int bestPos = targetTilePos;
-        float minDist = float.MaxValue;
-
-        foreach (var offset in candidateOffsets)
-        {
-            Vector3Int candidatePos = targetTilePos + offset;
-
-            // 해당 위치에서 타겟을 작업할 수 있는지 확인
-            int dx = Mathf.Abs(targetTilePos.x - candidatePos.x);
-            int dy = targetTilePos.y - candidatePos.y;
-
-            // 작업 범위 내인지 확인 (좌우 1칸, 상 3칸, 하 1칸)
-            if (dx <= 1 && dy >= -1 && dy <= 3)
+            GameMap gameMap = MapGenerator.instance.GameMapInstance;
+            if (gameMap != null)
             {
-                float dist = Vector3Int.Distance(currentPos, candidatePos);
-                if (dist < minDist)
-                {
-                    minDist = dist;
-                    bestPos = candidatePos;
-                }
+                pathfinder = new TilePathfinder(gameMap);
             }
+        }
+
+        // 작업 가능한 후보 위치들 (타겟 주변에서 타겟을 작업 범위에 넣을 수 있는 위치)
+        List<WorkPositionCandidate> candidates = new List<WorkPositionCandidate>();
+
+        // 타겟 기준으로 작업 범위를 만족하는 위치 찾기
+        // 직원이 (cx, cy)에 서 있을 때, 타겟 (tx, ty)가 작업 범위 내에 있으려면:
+        // |tx - cx| <= 1, -1 <= ty - cy <= 3
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            for (int dy = -3; dy <= 1; dy++)
+            {
+                Vector2Int candidatePos = new Vector2Int(
+                    targetTilePos.x + dx,
+                    targetTilePos.y + dy
+                );
+
+                // 맵 범위 확인
+                if (candidatePos.x < 0 || candidatePos.x >= GameMap.MAP_WIDTH ||
+                    candidatePos.y < 0 || candidatePos.y >= GameMap.MAP_HEIGHT)
+                    continue;
+
+                // 해당 위치에서 타겟이 작업 범위 내인지 확인
+                int workDx = Mathf.Abs(targetTilePos.x - candidatePos.x);
+                int workDy = targetTilePos.y - candidatePos.y;
+                if (workDx > 1 || workDy < -1 || workDy > 3)
+                    continue;
+
+                // 해당 위치가 직원이 서 있을 수 있는 유효한 위치인지 확인
+                if (pathfinder != null && !pathfinder.IsValidPosition(candidatePos))
+                    continue;
+
+                // 현재 위치와 같으면 스킵 (이미 작업 범위 체크에서 걸러짐)
+                Vector2Int startPos = new Vector2Int(currentPos.x, currentPos.y);
+                if (candidatePos == startPos)
+                    continue;
+
+                // 경로가 존재하는지 확인 - 경로가 있어야만 후보로 추가
+                List<Vector2Int> path = pathfinder?.FindPath(startPos, candidatePos);
+                if (path == null || path.Count == 0)
+                    continue;
+
+                // 후보에 추가 (경로가 있는 것만)
+                float distance = Vector2Int.Distance(startPos, candidatePos);
+                int heightDiff = Mathf.Abs(candidatePos.y - currentPos.y);
+
+                candidates.Add(new WorkPositionCandidate
+                {
+                    position = candidatePos,
+                    distance = distance,
+                    heightDiff = heightDiff,
+                    pathLength = path.Count
+                });
+            }
+        }
+
+        if (candidates.Count == 0)
+        {
+            Debug.LogWarning($"[Employee] 작업 가능한 위치를 찾을 수 없음: {targetTilePos}");
+            return Vector3.zero; // 작업 불가능 표시
+        }
+
+        // 휴리스틱 정렬:
+        // 1. 경로 길이가 짧은 것 우선
+        // 2. 높이 차이가 적은 것 우선
+        // 3. 거리가 가까운 것 우선
+        var sortedCandidates = candidates
+            .OrderBy(c => c.pathLength)
+            .ThenBy(c => c.heightDiff)
+            .ThenBy(c => c.distance)
+            .ToList();
+
+        Vector2Int bestPos = sortedCandidates[0].position;
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] 작업 위치 선택: {bestPos} (타겟: {targetTilePos}, 후보: {candidates.Count}개)");
         }
 
         // 타일 위로 변환 (직원 중심이 y + 2가 되도록)
         return new Vector3(bestPos.x + 0.5f, bestPos.y + 2f, 0);
+    }
+
+    /// <summary>
+    /// 작업 위치 후보 정보
+    /// </summary>
+    private struct WorkPositionCandidate
+    {
+        public Vector2Int position;
+        public float distance;
+        public int heightDiff;
+        public int pathLength;
     }
     
     private void StartWork(IWorkTarget target)

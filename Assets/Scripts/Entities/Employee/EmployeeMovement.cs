@@ -13,11 +13,15 @@ public class EmployeeMovement : MonoBehaviour
     [SerializeField] private float stoppingDistance = 0.1f;
     [SerializeField] private float tileTransitionSpeed = 5f; // 타일 간 이동 속도
 
+    [Header("낙하 설정")]
+    [SerializeField] private float fallSpeed = 8f;
+
     [Header("디버그")]
     [SerializeField] private bool showPath = true;
     [SerializeField] private bool showDebugLogs = false;
 
     private Vector3 targetPosition;
+    private bool isFalling = false;
     private bool isMoving = false;
     private Action onReachDestination;
     private Coroutine moveCoroutine;
@@ -73,6 +77,128 @@ public class EmployeeMovement : MonoBehaviour
         else
         {
             Debug.LogError("[EmployeeMovement] MapGenerator를 찾을 수 없습니다!");
+        }
+    }
+
+    void Update()
+    {
+        // 항상 바닥 체크 (어떤 상태에서도 바닥이 사라지면 낙하)
+        CheckGroundAndFall();
+    }
+
+    /// <summary>
+    /// 바닥이 있는지 확인하고 없으면 낙하 처리
+    /// </summary>
+    private void CheckGroundAndFall()
+    {
+        if (gameMap == null) return;
+
+        Vector2Int currentTile = WorldToTile(transform.position);
+
+        // 현재 발 아래 타일 확인
+        if (!HasGroundAt(currentTile))
+        {
+            // 바닥이 없으면 낙하 시작
+            if (!isFalling)
+            {
+                isFalling = true;
+
+                // 이동 중이면 이동 중단
+                if (isMoving)
+                {
+                    StopMovingForFall();
+                }
+
+                if (showDebugLogs)
+                {
+                    Debug.Log($"[EmployeeMovement] 바닥 없음! 낙하 시작: {currentTile}");
+                }
+            }
+
+            // 아래로 이동
+            transform.position += Vector3.down * fallSpeed * Time.deltaTime;
+
+            // 새로운 위치에서 바닥 확인
+            Vector2Int newTile = WorldToTile(transform.position);
+            if (HasGroundAt(newTile))
+            {
+                // 바닥에 착지
+                LandOnGround(newTile);
+            }
+        }
+        else if (isFalling)
+        {
+            // 이미 바닥이 있는데 falling 상태면 착지 처리
+            LandOnGround(currentTile);
+        }
+    }
+
+    /// <summary>
+    /// 낙하를 위해 이동을 중단합니다 (콜백 없이).
+    /// </summary>
+    private void StopMovingForFall()
+    {
+        if (moveCoroutine != null)
+        {
+            StopCoroutine(moveCoroutine);
+            moveCoroutine = null;
+        }
+
+        isMoving = false;
+        currentPath = null;
+        currentPathIndex = 0;
+        onReachDestination = null;
+
+        if (rb != null)
+        {
+            rb.linearVelocity = Vector2.zero;
+        }
+
+        Debug.Log("[EmployeeMovement] 낙하로 인해 이동 중단");
+    }
+
+    /// <summary>
+    /// 해당 타일 위치에 바닥(서 있을 수 있는 곳)이 있는지 확인
+    /// </summary>
+    private bool HasGroundAt(Vector2Int tilePos)
+    {
+        // 맵 범위 체크
+        if (tilePos.x < 0 || tilePos.x >= GameMap.MAP_WIDTH ||
+            tilePos.y < 0 || tilePos.y >= GameMap.MAP_HEIGHT)
+        {
+            return false;
+        }
+
+        // 1. 고체 타일이 있는지 확인 (발 아래)
+        int tileId = gameMap.TileGrid[tilePos.x, tilePos.y];
+        if (tileId != 0)
+        {
+            return true;
+        }
+
+        // 2. 바닥 타일(FloorTile)이 있는지 확인
+        if (FloorTile.HasFloorTileAt(tilePos))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 바닥에 착지
+    /// </summary>
+    private void LandOnGround(Vector2Int groundTile)
+    {
+        isFalling = false;
+
+        // 정확한 위치로 스냅
+        Vector3 landingPos = TileToWorld(groundTile);
+        transform.position = landingPos;
+
+        if (showDebugLogs)
+        {
+            Debug.Log($"[EmployeeMovement] 착지 완료: {groundTile}");
         }
     }
     
@@ -423,6 +549,7 @@ public class EmployeeMovement : MonoBehaviour
     
     // Public 프로퍼티
     public bool IsMoving => isMoving;
+    public bool IsFalling => isFalling;
     public Vector3 TargetPosition => targetPosition;
     public float DistanceToTarget => Vector3.Distance(transform.position, targetPosition);
     public List<Vector2Int> CurrentPath => currentPath;

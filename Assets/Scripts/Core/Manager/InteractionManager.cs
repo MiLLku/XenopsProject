@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Tilemaps;
+using UnityEngine.EventSystems;
 using System.Linq;
 
 public class InteractionManager : DestroySingleton<InteractionManager> 
@@ -262,7 +263,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         // 마우스 위치에서 레이캐스트
         Vector3 mousePos = _cameraController.GetMouseWorldPosition();
         RaycastHit2D hit = Physics2D.Raycast(mousePos, Vector2.zero);
-        
+
         // 호버 처리
         if (hit.collider != null)
         {
@@ -277,12 +278,49 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         {
             ClearHover();
         }
-        
-        // 클릭 처리
-        if (Input.GetMouseButtonDown(0) && hit.collider != null)
+
+        // 클릭 처리 - UI 위에 있는지 확인
+        if (Input.GetMouseButtonDown(0))
         {
-            HandleNormalModeClick(hit.collider.gameObject);
+            // UI 버튼이나 인터랙티브한 UI 위에 있으면 무시
+            if (IsPointerOverInteractiveUI())
+            {
+                return;
+            }
+
+            if (hit.collider != null)
+            {
+                HandleNormalModeClick(hit.collider.gameObject);
+            }
         }
+    }
+
+    /// <summary>
+    /// 마우스가 클릭 가능한 UI 위에 있는지 확인
+    /// </summary>
+    private bool IsPointerOverInteractiveUI()
+    {
+        if (EventSystem.current == null) return false;
+
+        var eventData = new UnityEngine.EventSystems.PointerEventData(EventSystem.current)
+        {
+            position = Input.mousePosition
+        };
+
+        var results = new System.Collections.Generic.List<UnityEngine.EventSystems.RaycastResult>();
+        EventSystem.current.RaycastAll(eventData, results);
+
+        // Button, Toggle, Slider 등 실제로 클릭 가능한 UI 컴포넌트만 확인
+        foreach (var result in results)
+        {
+            // Selectable 컴포넌트(Button, Toggle, Slider 등)가 있으면 차단
+            if (result.gameObject.GetComponent<UnityEngine.UI.Selectable>() != null)
+            {
+                return true;
+            }
+        }
+
+        return false; // 일반 Panel, Text, Image는 통과 (작업 더미 클릭 가능)
     }
     
     private void HandleNormalModeClick(GameObject clickedObject)

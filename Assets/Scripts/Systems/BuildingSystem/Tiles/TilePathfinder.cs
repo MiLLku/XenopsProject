@@ -380,7 +380,7 @@ public class TilePathfinder
     /// <summary>
     /// 위치가 유효한지 확인합니다 (직원이 서 있을 수 있는지).
     /// </summary>
-    private bool IsValidPosition(Vector2Int pos)
+    public bool IsValidPosition(Vector2Int pos)
     {
         if (!IsInBounds(pos))
             return false;

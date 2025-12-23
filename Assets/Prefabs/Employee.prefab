@@ -223,6 +223,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   baseSpeed: 5
   stoppingDistance: 0.1
+  tileTransitionSpeed: 5
+  spriteYOffset: 1
   showPath: 1
   showDebugLogs: 1
 --- !u!114 &4410438179212296614
