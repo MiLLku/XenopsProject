@@ -9,12 +9,11 @@ using System.Linq;
 public class TilePathfinder
 {
     private GameMap gameMap;
-    private const int EMPLOYEE_HEIGHT = 2; // 직원이 차지하는 높이
+    private const int EMPLOYEE_HEIGHT = 2;
     
-    // 길찾기용 노드
     private class PathNode
     {
-        public Vector2Int position; // 직원의 발 위치 (아래쪽 타일)
+        public Vector2Int position;
         public PathNode parent;
         public float gCost;
         public float hCost;
@@ -33,6 +32,7 @@ public class TilePathfinder
     
     /// <summary>
     /// 시작점에서 목표점까지의 경로를 찾습니다.
+    /// start와 goal은 모두 직원의 발 위치 타일 좌표입니다.
     /// </summary>
     public List<Vector2Int> FindPath(Vector2Int start, Vector2Int goal)
     {
@@ -40,6 +40,24 @@ public class TilePathfinder
         if (!IsValidPosition(goal))
         {
             Debug.LogWarning($"[Pathfinder] 목표 위치가 유효하지 않음: {goal}");
+            
+            // 목표 근처의 유효한 위치 찾기 시도
+            Vector2Int? nearestValid = FindNearestValidPosition(goal);
+            if (nearestValid.HasValue)
+            {
+                Debug.Log($"[Pathfinder] 대체 목표 위치 사용: {nearestValid.Value}");
+                goal = nearestValid.Value;
+            }
+            else
+            {
+                return null;
+            }
+        }
+        
+        // 시작 위치도 확인
+        if (!IsValidPosition(start))
+        {
+            Debug.LogWarning($"[Pathfinder] 시작 위치가 유효하지 않음: {start}");
             return null;
         }
         
@@ -65,6 +83,7 @@ public class TilePathfinder
             
             if (currentNode.position == goal)
             {
+                Debug.Log($"[Pathfinder] 경로 발견! 반복: {iterations}회");
                 return ReconstructPath(currentNode);
             }
             
@@ -105,6 +124,37 @@ public class TilePathfinder
         {
             Debug.LogWarning($"[Pathfinder] 최대 반복 횟수 초과");
         }
+        else
+        {
+            Debug.LogWarning($"[Pathfinder] 경로 없음: {start} -> {goal}");
+        }
+        
+        return null;
+    }
+    
+    /// <summary>
+    /// 목표 근처에서 유효한 위치를 찾습니다.
+    /// </summary>
+    private Vector2Int? FindNearestValidPosition(Vector2Int target)
+    {
+        // 주변 탐색 (반경 3칸)
+        for (int radius = 1; radius <= 3; radius++)
+        {
+            for (int dx = -radius; dx <= radius; dx++)
+            {
+                for (int dy = -radius; dy <= radius; dy++)
+                {
+                    if (Mathf.Abs(dx) != radius && Mathf.Abs(dy) != radius)
+                        continue; // 테두리만 탐색
+                    
+                    Vector2Int candidate = target + new Vector2Int(dx, dy);
+                    if (IsValidPosition(candidate))
+                    {
+                        return candidate;
+                    }
+                }
+            }
+        }
         
         return null;
     }
@@ -137,7 +187,6 @@ public class TilePathfinder
     
     /// <summary>
     /// 현재 위치에서 이동 가능한 이웃 타일들을 반환합니다.
-    /// 직원은 높이 차이 2칸까지 이동 가능합니다.
     /// </summary>
     private List<Vector2Int> GetNeighbors(Vector2Int pos)
     {
@@ -146,8 +195,8 @@ public class TilePathfinder
         // 수평 이동 (좌우)
         Vector2Int[] horizontalDirs = new Vector2Int[]
         {
-            new Vector2Int(1, 0),   // 오른쪽
-            new Vector2Int(-1, 0),  // 왼쪽
+            new Vector2Int(1, 0),
+            new Vector2Int(-1, 0),
         };
 
         foreach (var dir in horizontalDirs)
@@ -206,21 +255,19 @@ public class TilePathfinder
     
     /// <summary>
     /// 한 타일에서 다른 타일로 이동할 수 있는지 확인합니다.
-    /// 직원은 높이 차이 2칸까지 올라가거나 내려갈 수 있습니다.
     /// </summary>
     private bool CanMoveTo(Vector2Int from, Vector2Int to)
     {
         if (!IsInBounds(to))
             return false;
 
-        // 목표 위치가 유효한지 확인 (2칸 높이 필요)
         if (!IsValidPosition(to))
             return false;
 
         int heightDiff = to.y - from.y;
         int horizontalDiff = Mathf.Abs(to.x - from.x);
 
-        // 순수 수평 이동 (같은 높이)
+        // 순수 수평 이동
         if (heightDiff == 0 && horizontalDiff == 1)
         {
             return CanWalkHorizontally(from, to);
@@ -244,36 +291,27 @@ public class TilePathfinder
         return false;
     }
 
-    /// <summary>
-    /// 대각선 이동 (높이 차이 포함)이 가능한지 확인합니다.
-    /// </summary>
     private bool CanMoveDiagonal(Vector2Int from, Vector2Int to, int heightDiff)
     {
-        // 목표 위치가 유효한지 먼저 확인
         if (!IsValidPosition(to))
             return false;
 
-        // 높이 차이가 2칸 이하인지 확인
         if (Mathf.Abs(heightDiff) > 2)
             return false;
 
         // 위로 올라가는 경우
         if (heightDiff > 0)
         {
-            // 중간 경로에 블록이 없어야 함
             for (int y = from.y + 1; y <= to.y; y++)
             {
-                // 머리 부분 (2칸 높이) 확인
                 if (!IsSpaceClear(to.x, y + EMPLOYEE_HEIGHT - 1))
                     return false;
             }
         }
 
-        // 아래로 내려가는 경우 - 자유 낙하 가능
-        // 단, 목표 위치에 발판이 있어야 함
+        // 아래로 내려가는 경우
         if (heightDiff < 0)
         {
-            // 2칸 이상 떨어지는 것은 불가
             if (Mathf.Abs(heightDiff) > 2)
                 return false;
         }
@@ -281,20 +319,17 @@ public class TilePathfinder
         return true;
     }
     
-    /// <summary>
-    /// 수평으로 이동할 수 있는지 확인합니다.
-    /// </summary>
     private bool CanWalkHorizontally(Vector2Int from, Vector2Int to)
     {
         // 발을 디딜 곳이 있어야 함
         FloorTile toFloorTile = FloorTile.GetFloorTileAt(to);
         
-        // 바닥 타일이 있거나, 고체 타일이어야 함
+        // 바닥 타일이 있거나, 발 아래에 고체 타일이어야 함
         bool hasFloor = toFloorTile != null || gameMap.TileGrid[to.x, to.y] != 0;
         if (!hasFloor)
             return false;
         
-        // 머리 위 2칸이 비어있어야 함 (또는 통과 가능해야 함)
+        // 직원 몸통이 들어갈 2칸이 비어있어야 함
         for (int i = 1; i <= EMPLOYEE_HEIGHT; i++)
         {
             if (!IsSpaceClear(to.x, to.y + i))
@@ -304,9 +339,6 @@ public class TilePathfinder
         return true;
     }
     
-    /// <summary>
-    /// 위로 올라갈 수 있는지 확인합니다 (사다리 필요).
-    /// </summary>
     private bool CanClimbUp(Vector2Int from, Vector2Int to)
     {
         // 현재 위치나 목표 위치에 사다리가 있어야 함
@@ -319,7 +351,7 @@ public class TilePathfinder
         if (!hasLadder)
             return false;
         
-        // 목표 위치에서 2칸이 비어있어야 함
+        // 목표 위치에서 직원 몸통 공간 확인
         for (int i = 1; i <= EMPLOYEE_HEIGHT; i++)
         {
             if (!IsSpaceClear(to.x, to.y + i))
@@ -329,12 +361,9 @@ public class TilePathfinder
         return true;
     }
     
-    /// <summary>
-    /// 아래로 내려갈 수 있는지 확인합니다.
-    /// </summary>
     private bool CanClimbDown(Vector2Int from, Vector2Int to)
     {
-        // 사다리를 타고 내려가기
+        // 사다리 확인
         FloorTile currentLadder = FloorTile.GetFloorTileAt(new Vector2Int(from.x, from.y + 1));
         FloorTile toLadder = FloorTile.GetFloorTileAt(to);
         
@@ -343,11 +372,10 @@ public class TilePathfinder
         
         if (hasLadder)
         {
-            // 목표 위치가 유효한지만 확인
             return IsValidPosition(to);
         }
         
-        // 떨어지기 (최대 1칸까지만)
+        // 떨어지기 (최대 1칸)
         if (from.y - to.y == 1)
         {
             return IsValidPosition(to);
@@ -357,19 +385,17 @@ public class TilePathfinder
     }
     
     /// <summary>
-    /// 특정 공간이 비어있는지 확인합니다 (또는 통과 가능한지).
+    /// 특정 공간이 비어있는지 확인합니다.
     /// </summary>
     private bool IsSpaceClear(int x, int y)
     {
         if (!IsInBounds(new Vector2Int(x, y)))
             return false;
         
-        // 타일이 공기이거나
         int tileId = gameMap.TileGrid[x, y];
         if (tileId == 0) // AIR
             return true;
         
-        // 통과 가능한 바닥 타일이거나 (사다리)
         FloorTile floorTile = FloorTile.GetFloorTileAt(new Vector2Int(x, y));
         if (floorTile != null && floorTile.IsPassable())
             return true;
@@ -379,6 +405,7 @@ public class TilePathfinder
     
     /// <summary>
     /// 위치가 유효한지 확인합니다 (직원이 서 있을 수 있는지).
+    /// 발 위치 타일 좌표를 입력받습니다.
     /// </summary>
     public bool IsValidPosition(Vector2Int pos)
     {
@@ -397,7 +424,7 @@ public class TilePathfinder
                 return false;
         }
         
-        // 위 2칸이 비어있어야 함
+        // 직원 몸통 공간 (발 위로 2칸)이 비어있어야 함
         for (int i = 1; i <= EMPLOYEE_HEIGHT; i++)
         {
             if (!IsSpaceClear(pos.x, pos.y + i))
@@ -407,15 +434,10 @@ public class TilePathfinder
         return true;
     }
     
-    /// <summary>
-    /// 이동 비용을 계산합니다.
-    /// 높이 차이에 따라 추가 시간이 부여됩니다.
-    /// </summary>
     private float GetMovementCost(Vector2Int from, Vector2Int to)
     {
         float baseCost = 1f;
 
-        // 바닥 타일이 있으면 그 속도 배율 적용
         FloorTile floorTile = FloorTile.GetFloorTileAt(to);
         if (floorTile != null)
         {
@@ -426,11 +448,9 @@ public class TilePathfinder
             }
         }
 
-        // 수직 이동은 높이 차이만큼 추가 비용
         int heightDifference = Mathf.Abs(to.y - from.y);
         if (heightDifference > 0)
         {
-            // 높이 1칸당 기본 이동 비용 1을 추가
             baseCost += heightDifference * 1f;
         }
 

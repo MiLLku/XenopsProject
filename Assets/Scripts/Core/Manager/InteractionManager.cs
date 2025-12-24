@@ -52,7 +52,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     private MapRenderer _mapRenderer;
     private ResourceManager _resourceManager;
     private CameraController _cameraController;
-    private WorkOrderManager _workOrderManager;
+    private WorkSystemManager _workSystemManager;
     private TileHighlighter _tileHighlighter;
     
     // 모드 관리
@@ -103,10 +103,8 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         _mapRenderer = MapGenerator.instance.MapRendererInstance;
         _resourceManager = MapGenerator.instance.ResourceManagerInstance;
         _cameraController = Camera.main.GetComponent<CameraController>();
-        _workOrderManager = WorkOrderManager.instance;
-        _tileHighlighter = TileHighlighter.instance; // (이제 사용 비중이 줄었으나 호환성을 위해 유지)
-        
-        if (_workOrderManager == null) Debug.LogError("WorkOrderManager를 찾을 수 없습니다!");
+        _workSystemManager = WorkSystemManager.instance;
+        _tileHighlighter = TileHighlighter.instance;
     }
 
     void Update()
@@ -514,7 +512,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         if (tileID == 0 || tileID == 7) return false;
 
         // 이미 다른 작업에 포함된 타일인지 확인 (중복 생성 방지)
-        if (_workOrderManager != null && _workOrderManager.IsTileUnderWork(new Vector3Int(x, y, 0)))
+        if (_workSystemManager != null && _workSystemManager.IsTileUnderWork(new Vector3Int(x, y, 0)))
         {
             return false; 
         }
@@ -524,10 +522,10 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     
     private void CreateMiningWorkOrder(List<Vector3Int> tiles)
     {
-        if (_workOrderManager == null) return;
+        if (_workSystemManager == null) return;
     
         // 비주얼 생성 및 작업 등록
-        WorkOrderVisual visual = _workOrderManager.CreateWorkOrderWithVisual(
+        WorkOrderVisual visual = _workSystemManager.CreateWorkOrderWithVisual(
             $"채광 작업 ({tiles.Count}개)",
             WorkType.Mining,
             maxWorkers: defaultMiningWorkers,
@@ -614,7 +612,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         
         List<Vector3Int> objectTiles = _selectedObjects.Select(obj => new Vector3Int(Mathf.FloorToInt(obj.transform.position.x), Mathf.FloorToInt(obj.transform.position.y), 0)).ToList();
         
-        WorkOrderVisual visual = _workOrderManager.CreateWorkOrderWithVisual(
+        WorkOrderVisual visual = _workSystemManager.CreateWorkOrderWithVisual(
             $"{GetWorkTypeName(workType)} 작업 ({_selectedObjects.Count}개)", workType, defaultHarvestWorkers, objectTiles, 4);
             
         if (visual != null)
@@ -791,14 +789,14 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     private void FinishDemolishSelection()
     {
         if (_selectedObjects.Count == 0) return;
-        if (_workOrderManager == null) return;
+        if (_workSystemManager == null) return;
         
         foreach (var obj in _selectedObjects)
         {
             Building building = obj.GetComponent<Building>();
             if (building != null)
             {
-                WorkOrder workOrder = _workOrderManager.CreateWorkOrder($"철거: {building.buildingData.buildingName}", WorkType.Demolish, defaultDemolishWorkers, 6);
+                WorkOrder workOrder = _workSystemManager.CreateWorkOrder($"철거: {building.buildingData.buildingName}", WorkType.Demolish, defaultDemolishWorkers, 6);
                 workOrder.AddTarget(new DemolishOrder { building = building, position = obj.transform.position, priority = 6 });
             }
             SetObjectHighlight(obj, false);
@@ -837,8 +835,8 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     private void ExecuteAllOrdersInstantly()
     {
         // 치트 기능 (기존 유지)
-        if (_workOrderManager == null) return;
-        var allOrders = _workOrderManager.AllOrders.ToList();
+        if (_workSystemManager == null) return;
+        var allOrders = _workSystemManager.AllOrders.ToList();
         foreach (var workOrder in allOrders)
         {
             foreach (var target in workOrder.targets.ToList())
@@ -856,7 +854,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
                 // 다른 작업 타입 즉시 완료 처리...
                 workOrder.CompleteTarget(target, null);
             }
-            _workOrderManager.RemoveWorkOrder(workOrder);
+            _workSystemManager.RemoveWorkOrder(workOrder);
         }
     }
     #endregion

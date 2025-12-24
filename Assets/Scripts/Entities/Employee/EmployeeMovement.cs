@@ -11,19 +11,20 @@ public class EmployeeMovement : MonoBehaviour
     [Header("이동 설정")]
     [SerializeField] private float baseSpeed = 3f;
     [SerializeField] private float stoppingDistance = 0.1f;
-    [SerializeField] private float tileTransitionSpeed = 5f; // 타일 간 이동 속도
+    [SerializeField] private float tileTransitionSpeed = 5f;
 
     [Header("낙하 설정")]
     [SerializeField] private float fallSpeed = 8f;
 
     [Header("디버그")]
     [SerializeField] private bool showPath = true;
-    [SerializeField] private bool showDebugLogs = false;
+    [SerializeField] private bool showDebugLogs = true;
 
     private Vector3 targetPosition;
     private bool isFalling = false;
     private bool isMoving = false;
     private Action onReachDestination;
+    private Action onMoveFailed; // 이동 실패 콜백 추가
     private Coroutine moveCoroutine;
 
     // 타일 기반 경로
@@ -39,7 +40,9 @@ public class EmployeeMovement : MonoBehaviour
 
     // 물리 상태 저장
     private RigidbodyType2D originalBodyType;
-    private bool originalUseGravity;
+    
+    // 직원 높이 상수 (직원은 2칸 높이)
+    private const int EMPLOYEE_HEIGHT = 2;
     
     void Awake()
     {
@@ -47,28 +50,23 @@ public class EmployeeMovement : MonoBehaviour
         col = GetComponent<Collider2D>();
         employee = GetComponent<Employee>();
 
-        // Rigidbody2D 설정
         if (rb != null)
         {
             rb.bodyType = RigidbodyType2D.Dynamic;
             rb.gravityScale = 0f;
             rb.freezeRotation = true;
             rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
-
-            // 원본 물리 상태 저장
             originalBodyType = rb.bodyType;
-            originalUseGravity = rb.gravityScale > 0;
         }
 
         if (col == null)
         {
-            Debug.LogWarning("[EmployeeMovement] Collider2D가 없습니다. 추가해주세요.");
+            Debug.LogWarning("[EmployeeMovement] Collider2D가 없습니다.");
         }
     }
     
     void Start()
     {
-        // 게임 맵과 길찾기 시스템 초기화
         if (MapGenerator.instance != null)
         {
             gameMap = MapGenerator.instance.GameMapInstance;
@@ -82,28 +80,23 @@ public class EmployeeMovement : MonoBehaviour
 
     void Update()
     {
-        // 항상 바닥 체크 (어떤 상태에서도 바닥이 사라지면 낙하)
         CheckGroundAndFall();
     }
 
-    /// <summary>
-    /// 바닥이 있는지 확인하고 없으면 낙하 처리
-    /// </summary>
+    #region 낙하 처리
+
     private void CheckGroundAndFall()
     {
         if (gameMap == null) return;
 
-        Vector2Int currentTile = WorldToTile(transform.position);
+        Vector2Int currentTile = GetFootTile();
 
-        // 현재 발 아래 타일 확인
         if (!HasGroundAt(currentTile))
         {
-            // 바닥이 없으면 낙하 시작
             if (!isFalling)
             {
                 isFalling = true;
 
-                // 이동 중이면 이동 중단
                 if (isMoving)
                 {
                     StopMovingForFall();
@@ -115,27 +108,20 @@ public class EmployeeMovement : MonoBehaviour
                 }
             }
 
-            // 아래로 이동
             transform.position += Vector3.down * fallSpeed * Time.deltaTime;
 
-            // 새로운 위치에서 바닥 확인
-            Vector2Int newTile = WorldToTile(transform.position);
+            Vector2Int newTile = GetFootTile();
             if (HasGroundAt(newTile))
             {
-                // 바닥에 착지
                 LandOnGround(newTile);
             }
         }
         else if (isFalling)
         {
-            // 이미 바닥이 있는데 falling 상태면 착지 처리
             LandOnGround(currentTile);
         }
     }
 
-    /// <summary>
-    /// 낙하를 위해 이동을 중단합니다 (콜백 없이).
-    /// </summary>
     private void StopMovingForFall()
     {
         if (moveCoroutine != null)
@@ -147,36 +133,36 @@ public class EmployeeMovement : MonoBehaviour
         isMoving = false;
         currentPath = null;
         currentPathIndex = 0;
+        
+        // 이동 실패 콜백 호출
+        var failCallback = onMoveFailed;
         onReachDestination = null;
-
+        onMoveFailed = null;
+        
         if (rb != null)
         {
             rb.linearVelocity = Vector2.zero;
         }
 
         Debug.Log("[EmployeeMovement] 낙하로 인해 이동 중단");
+        
+        failCallback?.Invoke();
     }
 
-    /// <summary>
-    /// 해당 타일 위치에 바닥(서 있을 수 있는 곳)이 있는지 확인
-    /// </summary>
     private bool HasGroundAt(Vector2Int tilePos)
     {
-        // 맵 범위 체크
         if (tilePos.x < 0 || tilePos.x >= GameMap.MAP_WIDTH ||
             tilePos.y < 0 || tilePos.y >= GameMap.MAP_HEIGHT)
         {
             return false;
         }
 
-        // 1. 고체 타일이 있는지 확인 (발 아래)
         int tileId = gameMap.TileGrid[tilePos.x, tilePos.y];
         if (tileId != 0)
         {
             return true;
         }
 
-        // 2. 바닥 타일(FloorTile)이 있는지 확인
         if (FloorTile.HasFloorTileAt(tilePos))
         {
             return true;
@@ -185,14 +171,10 @@ public class EmployeeMovement : MonoBehaviour
         return false;
     }
 
-    /// <summary>
-    /// 바닥에 착지
-    /// </summary>
     private void LandOnGround(Vector2Int groundTile)
     {
         isFalling = false;
 
-        // 정확한 위치로 스냅
         Vector3 landingPos = TileToWorld(groundTile);
         transform.position = landingPos;
 
@@ -201,26 +183,46 @@ public class EmployeeMovement : MonoBehaviour
             Debug.Log($"[EmployeeMovement] 착지 완료: {groundTile}");
         }
     }
+
+    #endregion
+
+    #region 이동 시스템
     
     /// <summary>
     /// 목표 월드 좌표로 이동합니다 (자동 길찾기).
     /// </summary>
-    public void MoveTo(Vector3 worldDestination, Action onComplete = null)
+    /// <param name="worldDestination">목표 월드 좌표</param>
+    /// <param name="onComplete">이동 성공 시 콜백</param>
+    /// <param name="onFailed">이동 실패 시 콜백 (경로 없음 등)</param>
+    public void MoveTo(Vector3 worldDestination, Action onComplete = null, Action onFailed = null)
     {
         if (pathfinder == null)
         {
             Debug.LogError("[EmployeeMovement] Pathfinder가 초기화되지 않았습니다!");
+            onFailed?.Invoke();
             return;
         }
 
         StopMoving();
 
-        // 월드 좌표를 타일 좌표로 변환
-        Vector2Int currentTile = WorldToTile(transform.position);
-        Vector2Int goalTile = WorldToTile(worldDestination);
+        Vector2Int currentTile = GetFootTile();
+        Vector2Int goalTile = WorldToFootTile(worldDestination);
 
-        Debug.Log($"[EmployeeMovement] 이동 요청 - 현재 Transform: {transform.position}, 목표: {worldDestination}");
-        Debug.Log($"[EmployeeMovement] 경로 탐색: {currentTile} -> {goalTile}");
+        if (showDebugLogs)
+        {
+            Debug.Log($"[EmployeeMovement] 이동 요청 - 현재: {currentTile}, 목표: {goalTile}");
+        }
+
+        // 이미 목표 위치에 있는 경우
+        if (currentTile == goalTile)
+        {
+            if (showDebugLogs)
+            {
+                Debug.Log($"[EmployeeMovement] 이미 목표 위치에 있음");
+            }
+            onComplete?.Invoke();
+            return;
+        }
 
         // 경로 찾기
         currentPath = pathfinder.FindPath(currentTile, goalTile);
@@ -228,40 +230,47 @@ public class EmployeeMovement : MonoBehaviour
         if (currentPath == null || currentPath.Count == 0)
         {
             Debug.LogWarning($"[EmployeeMovement] 경로를 찾을 수 없습니다: {currentTile} -> {goalTile}");
-
-            // 경로를 찾지 못했을 때도 콜백 호출
-            onComplete?.Invoke();
+            
+            // ★ 핵심 수정: 경로 실패 시 성공 콜백 호출 안 함!
+            onFailed?.Invoke();
             return;
         }
 
         targetPosition = worldDestination;
         onReachDestination = onComplete;
+        onMoveFailed = onFailed;
         currentPathIndex = 0;
         isMoving = true;
 
-        Debug.Log($"[EmployeeMovement] 경로 발견: {currentPath.Count}개 타일");
-        for (int i = 0; i < Mathf.Min(currentPath.Count, 5); i++)
+        if (showDebugLogs)
         {
-            Debug.Log($"  경로[{i}]: {currentPath[i]}");
+            Debug.Log($"[EmployeeMovement] 경로 발견: {currentPath.Count}개 타일");
+            for (int i = 0; i < Mathf.Min(currentPath.Count, 5); i++)
+            {
+                Debug.Log($"  경로[{i}]: {currentPath[i]}");
+            }
         }
 
         moveCoroutine = StartCoroutine(FollowPathCoroutine());
     }
-    
+
     /// <summary>
-    /// 경로를 따라 이동하는 코루틴 (노드 기반 이동)
+    /// 기존 호환성을 위한 오버로드 (실패 콜백 없이)
     /// </summary>
+    public void MoveTo(Vector3 worldDestination, Action onComplete)
+    {
+        MoveTo(worldDestination, onComplete, null);
+    }
+    
     private IEnumerator FollowPathCoroutine()
     {
-        // 이동 시작: 물리 충돌 무시
         EnablePhysicsForMovement(false);
 
         while (isMoving && currentPathIndex < currentPath.Count)
         {
-            Vector2Int currentTile = (currentPathIndex > 0) ? currentPath[currentPathIndex - 1] : WorldToTile(transform.position);
+            Vector2Int currentTile = (currentPathIndex > 0) ? currentPath[currentPathIndex - 1] : GetFootTile();
             Vector2Int nextTile = currentPath[currentPathIndex];
 
-            // 높이 차이 계산
             int heightDiff = nextTile.y - currentTile.y;
 
             if (showDebugLogs)
@@ -269,29 +278,21 @@ public class EmployeeMovement : MonoBehaviour
                 Debug.Log($"[EmployeeMovement] 타일 이동: {currentTile} -> {nextTile} (높이차: {heightDiff})");
             }
 
-            // 노드 간 Lerp 이동
             yield return MoveToTileCoroutine(nextTile, heightDiff);
 
-            // 다음 타일로 이동
             currentPathIndex++;
         }
 
-        // 최종 목표 지점으로 미세 조정
-        if (Vector3.Distance(transform.position, targetPosition) > stoppingDistance)
+        if (isMoving && Vector3.Distance(transform.position, targetPosition) > stoppingDistance)
         {
             yield return MoveToPositionCoroutine(targetPosition);
         }
 
-        // 이동 완료: 물리 충돌 복구
         EnablePhysicsForMovement(true);
 
-        // 목적지 도착
         ReachDestination();
     }
 
-    /// <summary>
-    /// 특정 타일로 Lerp 이동
-    /// </summary>
     private IEnumerator MoveToTileCoroutine(Vector2Int targetTile, int heightDiff)
     {
         Vector3 startPos = transform.position;
@@ -299,41 +300,30 @@ public class EmployeeMovement : MonoBehaviour
         float journeyLength = Vector3.Distance(startPos, endPos);
         float startTime = Time.time;
 
-        Debug.Log($"[EmployeeMovement] Lerp 이동 시작: {startPos} -> {endPos} (거리: {journeyLength:F2})");
+        if (showDebugLogs)
+        {
+            Debug.Log($"[EmployeeMovement] Lerp 이동: {startPos} -> {endPos}");
+        }
 
-        // 높이 차이가 있으면 이동 속도 조정
-        float speedModifier = 1f + Mathf.Abs(heightDiff) * 0.2f; // 높이 차이만큼 느려짐
+        float speedModifier = 1f + Mathf.Abs(heightDiff) * 0.2f;
         float actualSpeed = tileTransitionSpeed / speedModifier;
 
-        int frameCount = 0;
         while (Vector3.Distance(transform.position, endPos) > stoppingDistance)
         {
+            if (!isMoving) yield break; // 이동 중단 체크
+            
             float distCovered = (Time.time - startTime) * actualSpeed;
             float fractionOfJourney = distCovered / journeyLength;
 
-            // Lerp로 부드럽게 이동
             transform.position = Vector3.Lerp(startPos, endPos, fractionOfJourney);
-
-            // 스프라이트 방향 전환
             UpdateSpriteDirection(endPos.x - startPos.x);
-
-            frameCount++;
-            if (frameCount % 10 == 0)
-            {
-                Debug.Log($"[EmployeeMovement] 이동 중: {transform.position}, fraction: {fractionOfJourney:F2}");
-            }
 
             yield return null;
         }
 
-        // 정확히 목표 위치로 스냅
         transform.position = endPos;
-        Debug.Log($"[EmployeeMovement] Lerp 이동 완료: {endPos}");
     }
 
-    /// <summary>
-    /// 특정 월드 좌표로 Lerp 이동
-    /// </summary>
     private IEnumerator MoveToPositionCoroutine(Vector3 targetPos)
     {
         Vector3 startPos = transform.position;
@@ -342,11 +332,12 @@ public class EmployeeMovement : MonoBehaviour
 
         while (Vector3.Distance(transform.position, targetPos) > stoppingDistance)
         {
+            if (!isMoving) yield break;
+            
             float distCovered = (Time.time - startTime) * tileTransitionSpeed;
             float fractionOfJourney = distCovered / journeyLength;
 
             transform.position = Vector3.Lerp(startPos, targetPos, fractionOfJourney);
-
             UpdateSpriteDirection(targetPos.x - startPos.x);
 
             yield return null;
@@ -355,67 +346,26 @@ public class EmployeeMovement : MonoBehaviour
         transform.position = targetPos;
     }
 
-    /// <summary>
-    /// 이동 중 물리 상태 제어
-    /// </summary>
     private void EnablePhysicsForMovement(bool enable)
     {
         if (rb != null)
         {
             if (enable)
             {
-                // 물리 복구
                 rb.bodyType = originalBodyType;
-                if (showDebugLogs)
-                {
-                    Debug.Log("[EmployeeMovement] 물리 충돌 복구");
-                }
             }
             else
             {
-                // 물리 무시 (Kinematic으로 전환)
                 rb.bodyType = RigidbodyType2D.Kinematic;
                 rb.linearVelocity = Vector2.zero;
-                if (showDebugLogs)
-                {
-                    Debug.Log("[EmployeeMovement] 물리 충돌 무시 (Kinematic)");
-                }
             }
         }
-    }
-    
-    /// <summary>
-    /// 현재 위치의 이동 속도 배율을 가져옵니다.
-    /// </summary>
-    private float GetCurrentSpeedMultiplier()
-    {
-        Vector2Int currentTile = WorldToTile(transform.position);
-        
-        // 바닥 타일이 있는지 확인
-        FloorTile floorTile = FloorTile.GetFloorTileAt(currentTile);
-        if (floorTile != null)
-        {
-            return floorTile.GetMovementSpeedMultiplier();
-        }
-        
-        // 바닥 타일이 없으면 기본 속도
-        return 1f;
-    }
-    
-    /// <summary>
-    /// 타일 좌표로 직접 이동합니다 (경로 없이).
-    /// </summary>
-    public void MoveToTile(Vector2Int tilePos, Action onComplete = null)
-    {
-        Vector3 worldPos = TileToWorld(tilePos);
-        MoveTo(worldPos, onComplete);
     }
     
     private void UpdateSpriteDirection(float xDirection)
     {
         if (Mathf.Abs(xDirection) < 0.01f) return;
         
-        // 스프라이트 좌우 반전
         Vector3 scale = transform.localScale;
         scale.x = Mathf.Abs(scale.x) * Mathf.Sign(xDirection);
         transform.localScale = scale;
@@ -432,12 +382,11 @@ public class EmployeeMovement : MonoBehaviour
             rb.linearVelocity = Vector2.zero;
         }
         
-        if (onReachDestination != null)
-        {
-            var callback = onReachDestination;
-            onReachDestination = null;
-            callback.Invoke();
-        }
+        var callback = onReachDestination;
+        onReachDestination = null;
+        onMoveFailed = null;
+        
+        callback?.Invoke();
     }
     
     public void StopMoving()
@@ -452,8 +401,8 @@ public class EmployeeMovement : MonoBehaviour
         currentPath = null;
         currentPathIndex = 0;
         onReachDestination = null;
+        onMoveFailed = null;
 
-        // 물리 복구
         EnablePhysicsForMovement(true);
 
         if (rb != null)
@@ -461,37 +410,56 @@ public class EmployeeMovement : MonoBehaviour
             rb.linearVelocity = Vector2.zero;
         }
     }
+
+    #endregion
+
+    #region 좌표 변환 (통일된 규칙)
     
     /// <summary>
-    /// 월드 좌표를 타일 좌표로 변환합니다.
-    /// 직원의 발 위치(y)에서 1을 빼서 실제 타일 좌표를 얻습니다.
+    /// 직원의 현재 발 위치 타일 좌표를 반환합니다.
+    /// 직원 중심(transform.position)에서 발 위치로 변환합니다.
     /// </summary>
-    private Vector2Int WorldToTile(Vector3 worldPos)
+    public Vector2Int GetFootTile()
     {
-        // 직원은 타일 위(y+1)에 있으므로, 타일 좌표는 y-1
+        // 직원은 2칸 높이, transform.position은 중심
+        // 중심 y에서 1을 빼면 발 위치 타일의 y+1 (발이 딛고 있는 타일의 위쪽)
+        // 실제 발이 딛고 있는 타일은 중심 y - 2
         return new Vector2Int(
-            Mathf.FloorToInt(worldPos.x),
-            Mathf.FloorToInt(worldPos.y - 1f)  // ★ 수정: y-1
+            Mathf.FloorToInt(transform.position.x),
+            Mathf.FloorToInt(transform.position.y) - EMPLOYEE_HEIGHT
         );
     }
 
     /// <summary>
-    /// 타일 좌표를 월드 좌표로 변환합니다.
-    /// 직원은 타일 위를 걸어다니므로 y+1 위치로 이동합니다.
-    /// 직원의 스프라이트 피벗이 중심(0.5)이고 높이가 2이므로, y+2 위치가 직원 중심입니다.
+    /// 월드 좌표를 발 위치 타일 좌표로 변환합니다.
+    /// </summary>
+    private Vector2Int WorldToFootTile(Vector3 worldPos)
+    {
+        // worldPos가 직원 중심 좌표라고 가정
+        return new Vector2Int(
+            Mathf.FloorToInt(worldPos.x),
+            Mathf.FloorToInt(worldPos.y) - EMPLOYEE_HEIGHT
+        );
+    }
+
+    /// <summary>
+    /// 타일 좌표를 직원 중심 월드 좌표로 변환합니다.
+    /// 직원이 해당 타일 위에 서 있을 때의 중심 위치입니다.
     /// </summary>
     private Vector3 TileToWorld(Vector2Int tilePos)
     {
-        // 타일 위 (y+1)에 직원 발이 오도록, 직원 중심은 y+2
-        return new Vector3(tilePos.x + 0.5f, tilePos.y + 2f, 0);
+        // 타일 위에 서 있을 때 직원 중심 = (타일x + 0.5, 타일y + 2, 0)
+        return new Vector3(tilePos.x + 0.5f, tilePos.y + EMPLOYEE_HEIGHT, 0);
     }
+
+    #endregion
+
+    #region 충돌 처리
     
-    // 장애물 회피
     void OnCollisionEnter2D(Collision2D collision)
     {
         if (isMoving)
         {
-            // 충돌 시 경로 재탐색
             if (showDebugLogs)
             {
                 Debug.Log($"[EmployeeMovement] 충돌 감지, 경로 재탐색");
@@ -499,13 +467,17 @@ public class EmployeeMovement : MonoBehaviour
             
             Vector3 currentTarget = targetPosition;
             Action currentCallback = onReachDestination;
+            Action currentFailCallback = onMoveFailed;
             
             StopMoving();
-            MoveTo(currentTarget, currentCallback);
+            MoveTo(currentTarget, currentCallback, currentFailCallback);
         }
     }
+
+    #endregion
+
+    #region 디버그
     
-    // 디버그 시각화
     void OnDrawGizmos()
     {
         if (!showPath || currentPath == null || currentPath.Count == 0)
@@ -513,7 +485,6 @@ public class EmployeeMovement : MonoBehaviour
         
         Gizmos.color = Color.yellow;
         
-        // 현재 위치에서 첫 경로 지점까지
         Vector3 currentPos = transform.position;
         if (currentPathIndex < currentPath.Count)
         {
@@ -522,7 +493,6 @@ public class EmployeeMovement : MonoBehaviour
             currentPos = firstPathPoint;
         }
         
-        // 경로 선 그리기
         for (int i = currentPathIndex; i < currentPath.Count - 1; i++)
         {
             Vector3 from = TileToWorld(currentPath[i]);
@@ -530,7 +500,6 @@ public class EmployeeMovement : MonoBehaviour
             Gizmos.DrawLine(from, to);
         }
         
-        // 경로 지점 표시
         Gizmos.color = Color.green;
         foreach (var tile in currentPath)
         {
@@ -538,7 +507,6 @@ public class EmployeeMovement : MonoBehaviour
             Gizmos.DrawWireCube(pos, Vector3.one * 0.3f);
         }
         
-        // 목표 지점 표시
         if (currentPath.Count > 0)
         {
             Gizmos.color = Color.red;
@@ -546,6 +514,8 @@ public class EmployeeMovement : MonoBehaviour
             Gizmos.DrawWireSphere(goalPos, 0.5f);
         }
     }
+
+    #endregion
     
     // Public 프로퍼티
     public bool IsMoving => isMoving;

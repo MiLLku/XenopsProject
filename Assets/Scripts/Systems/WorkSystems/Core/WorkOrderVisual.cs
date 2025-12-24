@@ -2,6 +2,9 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
 
+/// <summary>
+/// 작업물의 시각적 표현 (외곽선 + 라벨)
+/// </summary>
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer), typeof(BoxCollider2D))]
 public class WorkOrderVisual : MonoBehaviour
 {
@@ -10,10 +13,10 @@ public class WorkOrderVisual : MonoBehaviour
     [SerializeField] private List<Vector3Int> tilePositions = new List<Vector3Int>();
 
     [Header("외곽선 설정")]
-    [SerializeField] private Color normalColor = new Color(1f, 1f, 1f, 1f); // 흰색
-    [SerializeField] private Color selectedColor = new Color(1f, 0.8f, 0.2f, 1f); // 노란색
-    [SerializeField] private Color pendingColor = new Color(0.2f, 0.8f, 1f, 0.8f); // 예약 중일 때 색상 (하늘색 등)
-    [SerializeField] private float lineWidth = 0.05f; // 선 두께
+    [SerializeField] private Color normalColor = new Color(1f, 1f, 1f, 1f);
+    [SerializeField] private Color selectedColor = new Color(1f, 0.8f, 0.2f, 1f);
+    [SerializeField] private Color pendingColor = new Color(0.2f, 0.8f, 1f, 0.8f);
+    [SerializeField] private float lineWidth = 0.05f;
 
     [Header("UI 연결")]
     [SerializeField] private GameObject labelPrefab;
@@ -25,7 +28,7 @@ public class WorkOrderVisual : MonoBehaviour
     private TMPro.TextMeshProUGUI labelText;
     
     private bool isSelected = false;
-    private bool isPendingMode = false; // 예약 모드 여부 (InteractionManager에서 사용)
+    private bool isPendingMode = false;
 
     public WorkOrder WorkOrder => workOrder;
 
@@ -36,7 +39,6 @@ public class WorkOrderVisual : MonoBehaviour
         boxCollider = GetComponent<BoxCollider2D>();
         boxCollider.isTrigger = true;
 
-        // 기본 재질 설정
         meshRenderer.material = new Material(Shader.Find("Sprites/Default"));
     }
 
@@ -54,16 +56,15 @@ public class WorkOrderVisual : MonoBehaviour
     }
 
     /// <summary>
-    /// [추가됨] 예약 모드에서 타일 목록만 업데이트할 때 호출
+    /// 예약 모드에서 타일 목록만 업데이트할 때 호출
     /// </summary>
     public void UpdateTiles(List<Vector3Int> newTiles)
     {
-        isPendingMode = true; // 예약 상태임
+        isPendingMode = true;
         tilePositions = new List<Vector3Int>(newTiles);
         
         RefreshVisuals();
         
-        // 예약 모드일 때는 라벨을 끄거나 간단히 표시
         if (labelInstance != null) Destroy(labelInstance);
     }
 
@@ -76,10 +77,8 @@ public class WorkOrderVisual : MonoBehaviour
 
     void Update()
     {
-        // 예약 모드일 때는 자동 파괴 로직을 건너뜀
         if (isPendingMode) return;
 
-        // 정식 작업 모드일 때: 완료/취소 시 파괴
         if (workOrder == null || workOrder.IsCompleted() || !workOrder.isActive)
         {
             Destroy(gameObject);
@@ -87,6 +86,48 @@ public class WorkOrderVisual : MonoBehaviour
         }
 
         UpdateLabel();
+        
+        // 완료된 타일 제거 (시각적 업데이트)
+        UpdateTileVisuals();
+    }
+    
+    /// <summary>
+    /// 완료된 타일을 시각적으로 제거
+    /// </summary>
+    private void UpdateTileVisuals()
+    {
+        if (workOrder == null || workOrder.taskQueue == null) return;
+        
+        // 현재 남은 작업 타일만 필터링
+        var remainingTiles = new List<Vector3Int>();
+        
+        foreach (var tile in tilePositions)
+        {
+            // 해당 타일에 대한 작업이 아직 완료되지 않았는지 확인
+            bool isCompleted = false;
+            
+            foreach (var task in workOrder.taskQueue.CompletedTasks)
+            {
+                Vector3 taskPos = task.GetPosition();
+                if (Mathf.FloorToInt(taskPos.x) == tile.x && Mathf.FloorToInt(taskPos.y) == tile.y)
+                {
+                    isCompleted = true;
+                    break;
+                }
+            }
+            
+            if (!isCompleted)
+            {
+                remainingTiles.Add(tile);
+            }
+        }
+        
+        // 변경되었으면 비주얼 업데이트
+        if (remainingTiles.Count != tilePositions.Count)
+        {
+            tilePositions = remainingTiles;
+            RefreshVisuals();
+        }
     }
 
     private void GenerateOutlineMesh()
@@ -122,15 +163,14 @@ public class WorkOrderVisual : MonoBehaviour
         meshFilter.mesh = mesh;
         
         meshRenderer.sortingLayerName = "Default";
-        meshRenderer.sortingOrder = 100; 
+        meshRenderer.sortingOrder = 100;
     }
 
     private void AddEdgeMesh(Vector3Int tilePos, int dirIndex, List<Vector3> verts, List<int> tris)
     {
-        // 월드 좌표를 로컬 좌표로 변환
         Vector3 center = new Vector3(tilePos.x + 0.5f, tilePos.y + 0.5f, 0) - transform.position;
         
-        float d = 0.5f; 
+        float d = 0.5f;
         float t = lineWidth;
 
         Vector3[] quad = new Vector3[4];
@@ -198,14 +238,14 @@ public class WorkOrderVisual : MonoBehaviour
     
     private void UpdateLabelPos()
     {
-        if(labelInstance != null && tilePositions.Count > 0)
+        if (labelInstance != null && tilePositions.Count > 0)
         {
-             int maxY = tilePositions.Max(t => t.y);
-             int minX = tilePositions.Min(t => t.x);
-             int maxX = tilePositions.Max(t => t.x);
-             
-             Vector3 centerTop = new Vector3((minX + maxX) / 2f + 0.5f, maxY + 1.0f, 0);
-             labelInstance.transform.position = new Vector3(centerTop.x, centerTop.y, 0);
+            int maxY = tilePositions.Max(t => t.y);
+            int minX = tilePositions.Min(t => t.x);
+            int maxX = tilePositions.Max(t => t.x);
+            
+            Vector3 centerTop = new Vector3((minX + maxX) / 2f + 0.5f, maxY + 1.0f, 0);
+            labelInstance.transform.position = new Vector3(centerTop.x, centerTop.y, 0);
         }
     }
 
@@ -213,25 +253,42 @@ public class WorkOrderVisual : MonoBehaviour
     {
         if (labelText != null && workOrder != null)
         {
-            labelText.text = $"{workOrder.orderName}\n({workOrder.assignedWorkers.Count}/{workOrder.maxAssignedWorkers})";
+            // 큐 정보 표시
+            int pending = workOrder.taskQueue.PendingCount;
+            int assigned = workOrder.taskQueue.AssignedCount;
+            int completed = workOrder.taskQueue.CompletedCount;
+            
+            labelText.text = $"{workOrder.orderName}\n" +
+                            $"({workOrder.assignedWorkers.Count}/{workOrder.maxAssignedWorkers})\n" +
+                            $"[{completed}/{pending + assigned + completed}]";
         }
     }
     
     private void UpdateColor()
     {
         Color c = isPendingMode ? pendingColor : (isSelected ? selectedColor : normalColor);
-        if(meshRenderer != null) meshRenderer.material.color = c;
+        if (meshRenderer != null) meshRenderer.material.color = c;
     }
 
+    /// <summary>
+    /// 클릭 시 호출 (InteractionManager에서)
+    /// </summary>
     public void OnClicked()
     {
-        if (isPendingMode) return; // 예약 중인 더미는 클릭해도 UI 안 뜸
+        if (isPendingMode) return;
 
-        if (WorkAssignmentManager.instance != null)
+        // WorkSystemManager 또는 기존 WorkAssignmentManager 사용
+        if (WorkSystemManager.instance != null)
         {
             isSelected = true;
             UpdateColor();
-            WorkAssignmentManager.instance.ShowAssignmentUI(workOrder, this, Input.mousePosition);
+            WorkSystemManager.instance.ShowAssignmentUI(workOrder, this, Input.mousePosition);
+        }
+        else if (WorkSystemManager.instance != null)
+        {
+            isSelected = true;
+            UpdateColor();
+            WorkSystemManager.instance.ShowAssignmentUI(workOrder, this, Input.mousePosition);
         }
     }
     

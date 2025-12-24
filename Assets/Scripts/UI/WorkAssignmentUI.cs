@@ -12,7 +12,7 @@ public class WorkAssignmentUI : DestroySingleton<WorkAssignmentUI>
         Debug.Log("TODO: 직원 선택 UI 구현 필요");
         
         // 임시: 첫 번째 유휴 직원에게 자동 할당
-        if (WorkManager.instance != null && EmployeeManager.instance != null)
+        if (WorkSystemManager.instance != null && EmployeeManager.instance != null)
         {
             var idleEmployees = EmployeeManager.instance.AllEmployees
                 .Where(e => e.State == EmployeeState.Idle && e.CanPerformWork(order.workType))
@@ -20,7 +20,7 @@ public class WorkAssignmentUI : DestroySingleton<WorkAssignmentUI>
             
             if (idleEmployees.Count > 0)
             {
-                WorkManager.instance.AssignEmployeeToOrder(idleEmployees[0], order);
+                WorkSystemManager.instance.AssignEmployeeToOrder(idleEmployees[0], order);
                 Debug.Log($"임시 할당: {idleEmployees[0].Data.employeeName} -> {order.orderName}");
             }
             else

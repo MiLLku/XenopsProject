@@ -19,7 +19,7 @@ public class Employee : MonoBehaviour
     [SerializeField] private List<WorkPriority> workPriorities;
     
     [Header("디버그")]
-    [SerializeField] private bool showDebugInfo = false;
+    [SerializeField] private bool showDebugInfo = true;
     
     // 컴포넌트 참조
     private SpriteRenderer spriteRenderer;
@@ -28,7 +28,7 @@ public class Employee : MonoBehaviour
     
     // 작업 관련
     private IWorkTarget currentWorkTarget;
-    private WorkOrder currentWorkOrder; // 현재 할당된 작업물
+    private WorkOrder currentWorkOrder;
     private float workProgress = 0f;
     private Coroutine currentWorkCoroutine;
     
@@ -38,6 +38,9 @@ public class Employee : MonoBehaviour
     private float cachedWorkSpeedModifier = 1f;
     private float cachedHungerRateModifier = 1f;
     private float cachedFatigueRateModifier = 1f;
+    
+    // 직원 높이 상수
+    private const int EMPLOYEE_HEIGHT = 2;
     
     // 이벤트
     public delegate void StatsChangedDelegate(EmployeeStats stats);
@@ -67,19 +70,17 @@ public class Employee : MonoBehaviour
             Initialize(employeeData);
         }
         
-        // WorkManager에 등록
-        if (WorkManager.instance != null)
+        if (WorkSystemManager.instance != null)
         {
-            WorkManager.instance.RegisterEmployee(this);
+            WorkSystemManager.instance.RegisterEmployee(this);
         }
     }
     
     void OnDestroy()
     {
-        // WorkManager에서 제거
-        if (WorkManager.instance != null)
+        if (WorkSystemManager.instance != null)
         {
-            WorkManager.instance.UnregisterEmployee(this);
+            WorkSystemManager.instance.UnregisterEmployee(this);
         }
     }
     
@@ -87,13 +88,9 @@ public class Employee : MonoBehaviour
     {
         if (currentState == EmployeeState.Dead) return;
         
-        // 욕구 업데이트
         UpdateNeeds(Time.deltaTime);
-        
-        // 상태 체크
         CheckCriticalNeeds();
         
-        // 디버그 표시
         if (showDebugInfo)
         {
             ShowDebugStatus();
@@ -105,10 +102,8 @@ public class Employee : MonoBehaviour
         employeeData = data;
         name = $"Employee_{data.employeeName}";
         
-        // 특성 효과 계산
         CalculateTraitModifiers();
         
-        // 스탯 초기화
         currentStats = new EmployeeStats
         {
             health = Mathf.RoundToInt(data.maxHealth * cachedHealthModifier),
@@ -118,14 +113,12 @@ public class Employee : MonoBehaviour
             attackPower = Mathf.RoundToInt(data.attackPower * (1f + GetTraitAttackModifier()))
         };
         
-        // 욕구 초기화
         currentNeeds = new EmployeeNeeds
         {
             hunger = 100f,
             fatigue = 100f
         };
         
-        // 작업 우선순위 초기화
         if (workPriorities == null || workPriorities.Count == 0)
         {
             InitializeWorkPriorities();
@@ -186,12 +179,10 @@ public class Employee : MonoBehaviour
     
     private void UpdateNeeds(float deltaTime)
     {
-        // 배고픔 감소
         float hungerDecay = employeeData.hungerDecayRate * cachedHungerRateModifier;
         currentNeeds.hunger -= hungerDecay * deltaTime;
         currentNeeds.hunger = Mathf.Clamp(currentNeeds.hunger, 0f, 100f);
         
-        // 피로 증가 (작업 중일 때만)
         if (currentState == EmployeeState.Working)
         {
             float fatigueIncrease = employeeData.fatigueIncreaseRate * cachedFatigueRateModifier;
@@ -200,43 +191,36 @@ public class Employee : MonoBehaviour
         }
         else if (currentState == EmployeeState.Resting)
         {
-            // 휴식 중일 때 피로 회복
             currentNeeds.fatigue += 10f * deltaTime;
             currentNeeds.fatigue = Mathf.Clamp(currentNeeds.fatigue, 0f, 100f);
         }
         
-        // 배고픔이 0이면 체력과 정신력 감소
         if (currentNeeds.hunger <= 0f)
         {
             currentStats.health -= 1f * deltaTime;
             currentStats.mental -= 2f * deltaTime;
         }
         
-        // 피로가 0이면 정신력 감소
         if (currentNeeds.fatigue <= 0f)
         {
             currentStats.mental -= 3f * deltaTime;
         }
         
-        // 스탯 범위 제한
         currentStats.health = Mathf.Clamp(currentStats.health, 0f, currentStats.maxHealth);
         currentStats.mental = Mathf.Clamp(currentStats.mental, 0f, currentStats.maxMental);
         
-        // 이벤트 발생
         OnNeedsChanged?.Invoke(currentNeeds);
         OnStatsChanged?.Invoke(currentStats);
     }
     
     private void CheckCriticalNeeds()
     {
-        // 체력이 0 이하면 사망
         if (currentStats.health <= 0f)
         {
             SetState(EmployeeState.Dead);
             return;
         }
     
-        // 정신력이 0 이하면 정신 붕괴
         if (currentStats.mental <= 0f)
         {
             SetState(EmployeeState.MentalBreak);
@@ -247,31 +231,32 @@ public class Employee : MonoBehaviour
     #region 작업 시스템
 
     /// <summary>
+    /// 직원의 현재 발 위치 타일 좌표를 반환합니다.
+    /// </summary>
+    public Vector3Int GetFootTile()
+    {
+        return new Vector3Int(
+            Mathf.FloorToInt(transform.position.x),
+            Mathf.FloorToInt(transform.position.y) - EMPLOYEE_HEIGHT,
+            0
+        );
+    }
+
+    /// <summary>
     /// 직원의 현재 위치에서 작업 가능한 타일 범위를 반환합니다.
-    /// 직원은 세로 2칸 크기이며, 현재 바닥 기준으로:
-    /// - 좌우 1칸
-    /// - 상위 3칸 (머리 위 1칸 포함)
-    /// - 하단 1칸
+    /// 직원 발 기준으로: 좌우 1칸, 상위 3칸, 하단 1칸
     /// </summary>
     public List<Vector3Int> GetWorkableRange()
     {
         List<Vector3Int> workablePositions = new List<Vector3Int>();
+        Vector3Int footPosition = GetFootTile();
 
-        // 직원의 발 위치 (바닥 타일) - transform.position은 중심이므로 y-2
-        Vector3Int footPosition = new Vector3Int(
-            Mathf.FloorToInt(transform.position.x),
-            Mathf.FloorToInt(transform.position.y - 2f),
-            0
-        );
-
-        // 좌우 1칸, 상위 3칸, 하위 1칸 범위
         for (int dx = -1; dx <= 1; dx++)
         {
             for (int dy = -1; dy <= 3; dy++)
             {
                 Vector3Int targetPos = footPosition + new Vector3Int(dx, dy, 0);
 
-                // 맵 범위 내인지 확인
                 if (targetPos.x >= 0 && targetPos.x < GameMap.MAP_WIDTH &&
                     targetPos.y >= 0 && targetPos.y < GameMap.MAP_HEIGHT)
                 {
@@ -285,27 +270,20 @@ public class Employee : MonoBehaviour
 
     /// <summary>
     /// 특정 위치가 현재 직원의 작업 범위 내에 있는지 확인합니다.
-    /// 직원이 서 있는 타일 기준으로 좌우 1칸, 상 3칸, 하 1칸
     /// </summary>
     public bool IsPositionInWorkRange(Vector3Int position)
     {
-        // 직원이 서 있는 타일 계산
-        // transform.position.y는 직원 중심 (높이 2칸의 중심)
-        // 직원 중심 = 서 있는 타일 y + 2, 따라서 서 있는 타일 = 중심 - 2
-        Vector3Int standingTile = new Vector3Int(
-            Mathf.FloorToInt(transform.position.x),
-            Mathf.FloorToInt(transform.position.y) - 2,
-            0
-        );
+        Vector3Int standingTile = GetFootTile();
 
         int dx = Mathf.Abs(position.x - standingTile.x);
         int dy = position.y - standingTile.y;
 
-        // 좌우 1칸 이내, 상위 3칸 ~ 하위 1칸 범위
         bool inRange = dx <= 1 && dy >= -1 && dy <= 3;
 
-        // 항상 로그 출력 (디버그용)
-        Debug.Log($"[Employee] {employeeData.employeeName} - 범위 체크: 서있는 타일 {standingTile}, 타겟 {position}, dx={dx}, dy={dy}, inRange={inRange}");
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] {employeeData.employeeName} - 범위 체크: 서있는 타일 {standingTile}, 타겟 {position}, dx={dx}, dy={dy}, inRange={inRange}");
+        }
 
         return inRange;
     }
@@ -314,7 +292,6 @@ public class Employee : MonoBehaviour
     {
         if (employeeData == null || employeeData.abilities == null) return false;
 
-        // 우선순위에서 비활성화된 작업은 불가
         var priority = workPriorities.FirstOrDefault(w => w.workType == type);
         if (priority != null && !priority.enabled) return false;
 
@@ -353,7 +330,6 @@ public class Employee : MonoBehaviour
     
     private float GetFatigueModifier()
     {
-        // 피로도에 따른 작업 속도 감소
         if (currentNeeds.fatigue < 20f) return 0.5f;
         if (currentNeeds.fatigue < 50f) return 0.75f;
         return 1f;
@@ -390,17 +366,14 @@ public class Employee : MonoBehaviour
             0
         );
 
-        // 직원의 발 위치 계산 (transform.position은 중심이므로 y-1)
-        Vector3Int currentPos = new Vector3Int(
-            Mathf.FloorToInt(transform.position.x),
-            Mathf.FloorToInt(transform.position.y - 2f), // 중심에서 발 위치로 변환
-            0
-        );
+        Vector3Int currentFootTile = GetFootTile();
 
-        Debug.Log($"[Employee] {employeeData.employeeName} - 현재 발 위치: {currentPos}, 타겟 위치: {targetTilePos}, Transform: {transform.position}");
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] {employeeData.employeeName} - 현재 발 위치: {currentFootTile}, 타겟 위치: {targetTilePos}");
+        }
 
         bool inRange = IsPositionInWorkRange(targetTilePos);
-        Debug.Log($"[Employee] {employeeData.employeeName} - 작업 범위 내: {inRange}");
 
         if (inRange)
         {
@@ -413,10 +386,8 @@ public class Employee : MonoBehaviour
             // 작업 범위 밖이면 작업 가능한 위치로 이동
             if (movement != null)
             {
-                // 작업 대상 근처의 작업 가능한 위치 찾기
                 Vector3 workPosition = FindWorkablePositionForTarget(targetTilePos);
 
-                // 작업 가능한 위치를 찾지 못한 경우
                 if (workPosition == Vector3.zero)
                 {
                     Debug.LogWarning($"[Employee] {employeeData.employeeName}: 작업 가능한 위치 없음, 작업 취소");
@@ -427,14 +398,32 @@ public class Employee : MonoBehaviour
                 SetState(EmployeeState.Moving);
                 Debug.Log($"[Employee] {employeeData.employeeName}: 작업 위치로 이동 {workPosition}");
 
-                movement.MoveTo(workPosition, () => {
-                    Debug.Log($"[Employee] {employeeData.employeeName}: 목적지 도착, 작업 시작");
-                    StartWork(target);
-                });
+                // ★ 핵심 수정: 이동 성공/실패 콜백 분리
+                movement.MoveTo(workPosition, 
+                    onComplete: () => {
+                        // 이동 성공 시에만 작업 시작
+                        Debug.Log($"[Employee] {employeeData.employeeName}: 목적지 도착, 작업 시작");
+                        
+                        // 도착 후 다시 범위 확인
+                        if (IsPositionInWorkRange(targetTilePos))
+                        {
+                            StartWork(target);
+                        }
+                        else
+                        {
+                            Debug.LogWarning($"[Employee] {employeeData.employeeName}: 도착했지만 작업 범위 밖, 작업 취소");
+                            CancelWork();
+                        }
+                    },
+                    onFailed: () => {
+                        // ★ 이동 실패 시 작업 취소
+                        Debug.LogWarning($"[Employee] {employeeData.employeeName}: 이동 실패, 작업 취소");
+                        CancelWork();
+                    }
+                );
             }
             else
             {
-                // movement가 없으면 작업 불가
                 Debug.LogWarning($"[Employee] {employeeData.employeeName}: Movement 컴포넌트 없음!");
                 CancelWork();
             }
@@ -443,16 +432,11 @@ public class Employee : MonoBehaviour
 
     /// <summary>
     /// 작업 대상 근처에서 실제로 작업할 수 있는 위치를 찾습니다.
-    /// 휴리스틱 정렬: 거리, 도달 가능성, 높이 차이를 고려합니다.
     /// </summary>
     private Vector3 FindWorkablePositionForTarget(Vector3Int targetTilePos)
     {
-        // 직원의 발 위치 계산
-        Vector3Int currentPos = new Vector3Int(
-            Mathf.FloorToInt(transform.position.x),
-            Mathf.FloorToInt(transform.position.y - 2f),
-            0
-        );
+        Vector3Int currentFootTile = GetFootTile();
+        Vector2Int startPos = new Vector2Int(currentFootTile.x, currentFootTile.y);
 
         // TilePathfinder 가져오기
         TilePathfinder pathfinder = null;
@@ -465,7 +449,12 @@ public class Employee : MonoBehaviour
             }
         }
 
-        // 작업 가능한 후보 위치들 (타겟 주변에서 타겟을 작업 범위에 넣을 수 있는 위치)
+        if (pathfinder == null)
+        {
+            Debug.LogError("[Employee] Pathfinder를 생성할 수 없습니다!");
+            return Vector3.zero;
+        }
+
         List<WorkPositionCandidate> candidates = new List<WorkPositionCandidate>();
 
         // 타겟 기준으로 작업 범위를 만족하는 위치 찾기
@@ -492,22 +481,20 @@ public class Employee : MonoBehaviour
                     continue;
 
                 // 해당 위치가 직원이 서 있을 수 있는 유효한 위치인지 확인
-                if (pathfinder != null && !pathfinder.IsValidPosition(candidatePos))
+                if (!pathfinder.IsValidPosition(candidatePos))
                     continue;
 
-                // 현재 위치와 같으면 스킵 (이미 작업 범위 체크에서 걸러짐)
-                Vector2Int startPos = new Vector2Int(currentPos.x, currentPos.y);
+                // 현재 위치와 같으면 스킵
                 if (candidatePos == startPos)
                     continue;
 
-                // 경로가 존재하는지 확인 - 경로가 있어야만 후보로 추가
-                List<Vector2Int> path = pathfinder?.FindPath(startPos, candidatePos);
+                // 경로가 존재하는지 확인
+                List<Vector2Int> path = pathfinder.FindPath(startPos, candidatePos);
                 if (path == null || path.Count == 0)
                     continue;
 
-                // 후보에 추가 (경로가 있는 것만)
                 float distance = Vector2Int.Distance(startPos, candidatePos);
-                int heightDiff = Mathf.Abs(candidatePos.y - currentPos.y);
+                int heightDiff = Mathf.Abs(candidatePos.y - currentFootTile.y);
 
                 candidates.Add(new WorkPositionCandidate
                 {
@@ -522,13 +509,10 @@ public class Employee : MonoBehaviour
         if (candidates.Count == 0)
         {
             Debug.LogWarning($"[Employee] 작업 가능한 위치를 찾을 수 없음: {targetTilePos}");
-            return Vector3.zero; // 작업 불가능 표시
+            return Vector3.zero;
         }
 
-        // 휴리스틱 정렬:
-        // 1. 경로 길이가 짧은 것 우선
-        // 2. 높이 차이가 적은 것 우선
-        // 3. 거리가 가까운 것 우선
+        // 휴리스틱 정렬
         var sortedCandidates = candidates
             .OrderBy(c => c.pathLength)
             .ThenBy(c => c.heightDiff)
@@ -542,13 +526,10 @@ public class Employee : MonoBehaviour
             Debug.Log($"[Employee] 작업 위치 선택: {bestPos} (타겟: {targetTilePos}, 후보: {candidates.Count}개)");
         }
 
-        // 타일 위로 변환 (직원 중심이 y + 2가 되도록)
-        return new Vector3(bestPos.x + 0.5f, bestPos.y + 2f, 0);
+        // 타일 좌표를 직원 중심 월드 좌표로 변환
+        return new Vector3(bestPos.x + 0.5f, bestPos.y + EMPLOYEE_HEIGHT, 0);
     }
 
-    /// <summary>
-    /// 작업 위치 후보 정보
-    /// </summary>
     private struct WorkPositionCandidate
     {
         public Vector2Int position;
@@ -561,6 +542,7 @@ public class Employee : MonoBehaviour
     {
         if (target == null || !target.IsWorkAvailable()) 
         {
+            Debug.LogWarning($"[Employee] {employeeData.employeeName}: 작업 대상이 더 이상 유효하지 않음");
             CompleteWork();
             return;
         }
@@ -577,7 +559,7 @@ public class Employee : MonoBehaviour
         
         currentWorkCoroutine = StartCoroutine(PerformWork(target, workTime));
     }
-    
+
     private IEnumerator PerformWork(IWorkTarget target, float workTime)
     {
         workProgress = 0f;
@@ -597,6 +579,21 @@ public class Employee : MonoBehaviour
                 yield break;
             }
             
+            // ★ 추가: 작업 중에도 범위 확인 (직원이 밀려났을 수 있음)
+            Vector3 targetPos = target.GetWorkPosition();
+            Vector3Int targetTilePos = new Vector3Int(
+                Mathf.FloorToInt(targetPos.x),
+                Mathf.FloorToInt(targetPos.y),
+                0
+            );
+            
+            if (!IsPositionInWorkRange(targetTilePos))
+            {
+                Debug.LogWarning($"[Employee] {employeeData.employeeName}: 작업 중 범위 이탈, 작업 취소");
+                CancelWork();
+                yield break;
+            }
+            
             yield return null;
         }
         
@@ -612,23 +609,18 @@ public class Employee : MonoBehaviour
             Debug.Log($"[Employee] {employeeData.employeeName}이(가) {currentWork} 작업을 완료했습니다.");
         }
 
-        // WorkManager에 알림 (다음 작업 할당을 위해 currentWorkOrder 유지)
-        if (WorkManager.instance != null && currentWorkTarget != null && currentWorkOrder != null)
+        if (WorkSystemManager.instance != null && currentWorkTarget != null && currentWorkOrder != null)
         {
-            // 임시로 저장
             IWorkTarget completedTarget = currentWorkTarget;
             WorkOrder completedOrder = currentWorkOrder;
 
-            // 현재 작업 대상만 초기화 (WorkOrder는 유지)
             currentWorkTarget = null;
             currentWork = WorkType.None;
             workProgress = 0f;
             currentWorkCoroutine = null;
 
-            // WorkManager에 알림 (다음 작업 할당 시도)
-            WorkManager.instance.OnWorkerCompletedTarget(this, completedTarget, completedOrder);
+            WorkSystemManager.instance.OnWorkerCompletedTarget(this, completedTarget, completedOrder);
 
-            // WorkManager가 다음 작업을 할당하지 않았으면 완전히 초기화
             if (currentWorkTarget == null && currentWorkOrder == completedOrder)
             {
                 currentWorkOrder = null;
@@ -637,7 +629,6 @@ public class Employee : MonoBehaviour
         }
         else
         {
-            // WorkManager가 없으면 즉시 초기화
             currentWorkTarget = null;
             currentWorkOrder = null;
             currentWork = WorkType.None;
@@ -659,10 +650,9 @@ public class Employee : MonoBehaviour
         {
             currentWorkTarget.CancelWork(this);
             
-            // WorkManager에 알림
-            if (WorkManager.instance != null)
+            if (WorkSystemManager.instance != null)
             {
-                WorkManager.instance.OnWorkerCancelledWork(this);
+                WorkSystemManager.instance.OnWorkerCancelledWork(this);
             }
             
             currentWorkTarget = null;
@@ -672,7 +662,6 @@ public class Employee : MonoBehaviour
         currentWork = WorkType.None;
         workProgress = 0f;
         
-        // 이동 중단
         if (movement != null)
         {
             movement.StopMoving();
@@ -684,35 +673,6 @@ public class Employee : MonoBehaviour
     #endregion
     
     #region 욕구 관리
-    
-    private void RequestFood()
-    {
-        // 현재 작업 취소하고 식사
-        if (currentState == EmployeeState.Working)
-        {
-            CancelWork();
-        }
-        
-        if (showDebugInfo)
-        {
-            Debug.Log($"[Employee] {employeeData.employeeName}이(가) 배고픕니다!");
-        }
-    }
-    
-    private void RequestRest()
-    {
-        if (currentState == EmployeeState.Working)
-        {
-            CancelWork();
-        }
-        
-        SetState(EmployeeState.Resting);
-        
-        if (showDebugInfo)
-        {
-            Debug.Log($"[Employee] {employeeData.employeeName}이(가) 휴식을 취합니다.");
-        }
-    }
     
     public void Eat(float nutritionValue)
     {
@@ -736,13 +696,11 @@ public class Employee : MonoBehaviour
         currentState = newState;
         OnStateChanged?.Invoke(newState);
         
-        // 상태별 시각 효과
         UpdateVisualState();
     }
     
     private void UpdateVisualState()
     {
-        // 상태에 따른 색상 변경
         Color color = Color.white;
         
         switch (currentState)
@@ -803,7 +761,7 @@ public class Employee : MonoBehaviour
     
     private void ShowDebugStatus()
     {
-        if (Time.frameCount % 60 != 0) return; // 1초마다만 출력
+        if (Time.frameCount % 60 != 0) return;
         
         string status = $"[{employeeData.employeeName}] ";
         status += $"State:{currentState} Work:{currentWork} ";
