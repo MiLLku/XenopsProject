@@ -270,22 +270,126 @@ public class Employee : MonoBehaviour
 
     /// <summary>
     /// 특정 위치가 현재 직원의 작업 범위 내에 있는지 확인합니다.
+    /// 중간에 고체 타일이 있으면 작업 불가합니다.
     /// </summary>
-    public bool IsPositionInWorkRange(Vector3Int position)
+    public bool IsPositionInWorkRange(Vector3Int targetPosition)
     {
         Vector3Int standingTile = GetFootTile();
 
-        int dx = Mathf.Abs(position.x - standingTile.x);
-        int dy = position.y - standingTile.y;
+        int dx = Mathf.Abs(targetPosition.x - standingTile.x);
+        int dy = targetPosition.y - standingTile.y;
 
+        // 1. 기본 범위 체크: 좌우 1칸, 아래 1칸 ~ 위 3칸
         bool inRange = dx <= 1 && dy >= -1 && dy <= 3;
+        
+        if (!inRange)
+        {
+            return false;
+        }
+        
+        // 2. 시야 체크: 직원과 타겟 사이에 고체 타일이 있으면 작업 불가
+        // (타겟 자체는 고체여도 됨 - 그걸 파는 거니까)
+        if (!HasLineOfSight(standingTile, targetPosition))
+        {
+            if (showDebugInfo)
+            {
+                Debug.Log($"[Employee] {employeeData.employeeName} - 시야 차단됨: {standingTile} -> {targetPosition}");
+            }
+            return false;
+        }
 
         if (showDebugInfo)
         {
-            Debug.Log($"[Employee] {employeeData.employeeName} - 범위 체크: 서있는 타일 {standingTile}, 타겟 {position}, dx={dx}, dy={dy}, inRange={inRange}");
+            Debug.Log($"[Employee] {employeeData.employeeName} - 범위 체크: 서있는 타일 {standingTile}, 타겟 {targetPosition}, dx={dx}, dy={dy}, inRange=true");
         }
 
-        return inRange;
+        return true;
+    }
+    
+    /// <summary>
+    /// 직원 위치에서 타겟까지 시야가 확보되는지 확인합니다.
+    /// 중간에 고체 타일이 있으면 false를 반환합니다.
+    /// </summary>
+    private bool HasLineOfSight(Vector3Int from, Vector3Int to)
+    {
+        GameMap gameMap = MapGenerator.instance?.GameMapInstance;
+        if (gameMap == null) return true; // 맵이 없으면 일단 통과
+        
+        // 직원의 몸통 영역 (발 위치 + 1, 발 위치 + 2)
+        int bodyY1 = from.y + 1;
+        int bodyY2 = from.y + 2;
+        
+        // 같은 X 좌표인 경우: 수직 방향 체크
+        if (from.x == to.x)
+        {
+            // 위쪽 타겟
+            if (to.y > bodyY2)
+            {
+                // 머리 위에서 타겟까지 중간 타일 체크
+                for (int y = bodyY2 + 1; y < to.y; y++)
+                {
+                    if (IsSolidTile(gameMap, from.x, y))
+                        return false;
+                }
+            }
+            // 아래쪽 타겟
+            else if (to.y < from.y)
+            {
+                // 발 아래에서 타겟까지 중간 타일 체크 (타겟 바로 위까지만)
+                for (int y = from.y - 1; y > to.y; y--)
+                {
+                    if (IsSolidTile(gameMap, from.x, y))
+                        return false;
+                }
+            }
+            // 몸통 높이의 타겟은 항상 접근 가능
+        }
+        // 다른 X 좌표인 경우: 옆에서 접근
+        else
+        {
+            int targetX = to.x;
+            
+            // 타겟이 몸통 높이 범위 내인 경우 (from.y <= to.y <= bodyY2)
+            if (to.y >= from.y && to.y <= bodyY2)
+            {
+                // 바로 옆이면 OK
+                return true;
+            }
+            
+            // 타겟이 위쪽인 경우
+            if (to.y > bodyY2)
+            {
+                // 타겟 바로 아래 타일들이 막혀있는지 체크
+                for (int y = bodyY2 + 1; y < to.y; y++)
+                {
+                    if (IsSolidTile(gameMap, targetX, y))
+                        return false;
+                }
+            }
+            // 타겟이 아래쪽인 경우
+            else if (to.y < from.y)
+            {
+                // 발 아래에서 타겟까지
+                for (int y = from.y - 1; y > to.y; y--)
+                {
+                    if (IsSolidTile(gameMap, targetX, y))
+                        return false;
+                }
+            }
+        }
+        
+        return true;
+    }
+    
+    /// <summary>
+    /// 특정 위치가 고체 타일인지 확인합니다.
+    /// </summary>
+    private bool IsSolidTile(GameMap gameMap, int x, int y)
+    {
+        if (x < 0 || x >= GameMap.MAP_WIDTH || y < 0 || y >= GameMap.MAP_HEIGHT)
+            return false;
+        
+        return gameMap.TileGrid[x, y] != 0; // 0 = AIR
     }
 
     public bool CanPerformWork(WorkType type)

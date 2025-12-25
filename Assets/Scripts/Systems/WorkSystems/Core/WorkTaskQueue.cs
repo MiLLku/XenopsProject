@@ -5,19 +5,19 @@ using UnityEngine;
 /// <summary>
 /// 작업 큐 관리자
 /// WorkOrder에 속한 모든 WorkTask를 큐로 관리합니다.
-/// 우선순위와 거리 기반으로 다음 작업을 할당합니다.
+/// 표면 타일(접근 가능한 타일)을 우선 선택하여 위에서 아래로 채굴합니다.
 /// </summary>
 [System.Serializable]
 public class WorkTaskQueue
 {
     [Header("큐 상태")]
-    [SerializeField] private List<WorkTask> pendingTasks = new List<WorkTask>();      // 대기 중인 작업
-    [SerializeField] private List<WorkTask> assignedTasks = new List<WorkTask>();     // 할당된 작업
-    [SerializeField] private List<WorkTask> completedTasks = new List<WorkTask>();    // 완료된 작업
+    [SerializeField] private List<WorkTask> pendingTasks = new List<WorkTask>();
+    [SerializeField] private List<WorkTask> assignedTasks = new List<WorkTask>();
+    [SerializeField] private List<WorkTask> completedTasks = new List<WorkTask>();
     
     [Header("설정")]
-    [SerializeField] private bool useDistancePriority = true;  // 거리 기반 우선순위 사용
-    [SerializeField] private float distanceWeight = 0.5f;      // 거리 가중치 (0~1)
+    [SerializeField] private bool useDistancePriority = true;
+    [SerializeField] private float distanceWeight = 0.5f;
     
     // 이벤트
     public delegate void TaskDelegate(WorkTask task);
@@ -25,9 +25,8 @@ public class WorkTaskQueue
     public event TaskDelegate OnTaskCancelled;
     public event TaskDelegate OnAllTasksCompleted;
     
-    /// <summary>
-    /// 새 작업을 큐에 추가
-    /// </summary>
+    #region 큐 관리
+    
     public void Enqueue(WorkTask task)
     {
         if (task == null) return;
@@ -39,9 +38,6 @@ public class WorkTaskQueue
         }
     }
     
-    /// <summary>
-    /// 여러 작업을 한번에 추가
-    /// </summary>
     public void EnqueueRange(IEnumerable<WorkTask> tasks)
     {
         foreach (var task in tasks)
@@ -54,46 +50,146 @@ public class WorkTaskQueue
         SortPendingTasks();
     }
     
+    #endregion
+    
+    #region 작업 할당
+    
     /// <summary>
     /// 특정 직원에게 가장 적합한 다음 작업을 할당
+    /// 도달 가능한 작업만 선택합니다.
     /// </summary>
     public WorkTask AssignNextTask(Employee worker)
     {
         if (worker == null || pendingTasks.Count == 0)
             return null;
         
-        // 직원의 작업 범위 내에 있는 작업 우선
         Vector3 workerPos = worker.transform.position;
         
-        // 유효한 작업만 필터링
         var validTasks = pendingTasks.Where(t => t.IsValid()).ToList();
         
         if (validTasks.Count == 0)
             return null;
         
-        WorkTask bestTask = null;
-        float bestScore = float.MaxValue;
-        
-        foreach (var task in validTasks)
+        // Pathfinder 준비
+        TilePathfinder pathfinder = null;
+        GameMap gameMap = null;
+        if (MapGenerator.instance != null)
         {
-            float score = CalculateTaskScore(task, worker, workerPos);
-            
-            if (score < bestScore)
+            gameMap = MapGenerator.instance.GameMapInstance;
+            if (gameMap != null)
             {
-                bestScore = score;
-                bestTask = task;
+                pathfinder = new TilePathfinder(gameMap);
             }
         }
         
-        if (bestTask != null)
+        if (pathfinder == null || gameMap == null)
+            return null;
+        
+        // 직원의 발 위치
+        Vector2Int workerFootTile = new Vector2Int(
+            Mathf.FloorToInt(workerPos.x),
+            Mathf.FloorToInt(workerPos.y) - 2
+        );
+        
+        // 모든 작업 타일 위치 수집
+        HashSet<Vector2Int> allTaskTiles = new HashSet<Vector2Int>();
+        foreach (var task in validTasks)
         {
-            // 작업 할당
-            if (bestTask.Assign(worker))
+            Vector3 pos = task.GetPosition();
+            allTaskTiles.Add(new Vector2Int(
+                Mathf.FloorToInt(pos.x),
+                Mathf.FloorToInt(pos.y)
+            ));
+        }
+        
+        // 후보 수집
+        List<TaskCandidate> candidates = new List<TaskCandidate>();
+        
+        foreach (var task in validTasks)
+        {
+            Vector3 taskPos = task.GetPosition();
+            Vector2Int taskTile = new Vector2Int(
+                Mathf.FloorToInt(taskPos.x),
+                Mathf.FloorToInt(taskPos.y)
+            );
+            Vector3Int taskTile3 = new Vector3Int(taskTile.x, taskTile.y, 0);
+            
+            // 1. 직원이 서 있는 타일인지 확인
+            bool standingOnTask = (taskTile == workerFootTile);
+            
+            // 2. 작업 가능한 위치 찾기
+            Vector2Int? workPosition = null;
+            bool isInRange = false;
+            
+            if (standingOnTask)
             {
-                pendingTasks.Remove(bestTask);
-                assignedTasks.Add(bestTask);
-                return bestTask;
+                // 직원이 이 타일 위에 서 있음 -> 옆으로 이동해야 함
+                workPosition = FindAlternativeWorkPosition(
+                    pathfinder, gameMap, workerFootTile, taskTile, allTaskTiles, worker);
+                
+                if (!workPosition.HasValue)
+                {
+                    // 이동할 곳이 없으면 스킵
+                    continue;
+                }
             }
+            else
+            {
+                // IsPositionInWorkRange가 시야 체크까지 하므로, 진짜 작업 가능한지 확인
+                isInRange = worker.IsPositionInWorkRange(taskTile3);
+                
+                if (!isInRange)
+                {
+                    // 범위 밖이면 이동해서 작업할 위치 찾기
+                    workPosition = FindReachableWorkPosition(
+                        pathfinder, workerFootTile, taskTile3, allTaskTiles, worker);
+                    if (!workPosition.HasValue)
+                    {
+                        // 도달 불가능
+                        continue;
+                    }
+                }
+            }
+            
+            // 3. 유효한 후보!
+            float distance = 0;
+            if (workPosition.HasValue)
+            {
+                distance = Vector2Int.Distance(workerFootTile, workPosition.Value);
+            }
+            
+            candidates.Add(new TaskCandidate
+            {
+                task = task,
+                distance = distance,
+                priority = task.priority,
+                isInRange = isInRange && !standingOnTask,
+                standingOnTask = standingOnTask
+            });
+        }
+        
+        if (candidates.Count == 0)
+        {
+            Debug.LogWarning("[WorkTaskQueue] 접근 가능한 작업이 없습니다.");
+            return null;
+        }
+        
+        // 4. 후보 중 최적 선택
+        var bestCandidate = candidates
+            .OrderBy(c => c.standingOnTask ? 1 : 0)   // 서 있는 타일은 후순위
+            .ThenByDescending(c => c.isInRange)        // 범위 내 우선
+            .ThenBy(c => c.priority)                   // 우선순위 낮은 것
+            .ThenBy(c => c.distance)                   // 거리 가까운 것
+            .First();
+        
+        if (bestCandidate.task.Assign(worker))
+        {
+            pendingTasks.Remove(bestCandidate.task);
+            assignedTasks.Add(bestCandidate.task);
+            
+            Debug.Log($"[WorkTaskQueue] 작업 할당: {bestCandidate.task.GetPosition()} " +
+                     $"(후보 {candidates.Count}개, 범위내:{bestCandidate.isInRange}, 서있음:{bestCandidate.standingOnTask})");
+            return bestCandidate.task;
         }
         
         return null;
@@ -107,31 +203,130 @@ public class WorkTaskQueue
         if (worker == null || pendingTasks.Count == 0)
             return null;
         
-        // 유효한 작업만 필터링
         var validTasks = pendingTasks.Where(t => t.IsValid()).ToList();
         
         if (validTasks.Count == 0)
             return null;
         
-        // 작업 범위 내의 작업 찾기
+        // 직원 발 위치
+        Vector3 workerPos = worker.transform.position;
+        Vector2Int workerFootTile = new Vector2Int(
+            Mathf.FloorToInt(workerPos.x),
+            Mathf.FloorToInt(workerPos.y) - 2
+        );
+        
+        // 작업 범위 내 + 서 있지 않은 작업 찾기
+        var tasksInRange = new List<WorkTask>();
+        
         foreach (var task in validTasks)
         {
             Vector3 taskPos = task.GetPosition();
-            Vector3Int taskTilePos = new Vector3Int(
+            Vector2Int taskTile = new Vector2Int(
                 Mathf.FloorToInt(taskPos.x),
-                Mathf.FloorToInt(taskPos.y),
-                0
+                Mathf.FloorToInt(taskPos.y)
             );
+            Vector3Int taskTile3 = new Vector3Int(taskTile.x, taskTile.y, 0);
             
-            if (worker.IsPositionInWorkRange(taskTilePos))
+            // 서 있는 타일 제외
+            if (taskTile == workerFootTile)
+                continue;
+            
+            // IsPositionInWorkRange가 시야 체크까지 함
+            if (worker.IsPositionInWorkRange(taskTile3))
             {
-                // 작업 할당
-                if (task.Assign(worker))
-                {
-                    pendingTasks.Remove(task);
-                    assignedTasks.Add(task);
-                    return task;
-                }
+                tasksInRange.Add(task);
+            }
+        }
+        
+        var sortedTasks = tasksInRange.OrderBy(t => t.priority).ThenBy(t => t.createdTime);
+        
+        foreach (var task in sortedTasks)
+        {
+            if (task.Assign(worker))
+            {
+                pendingTasks.Remove(task);
+                assignedTasks.Add(task);
+                return task;
+            }
+        }
+        
+        return null;
+    }
+    
+    #endregion
+    
+    #region 헬퍼 메서드
+    
+    private struct TaskCandidate
+    {
+        public WorkTask task;
+        public float distance;
+        public int priority;
+        public bool isInRange;
+        public bool standingOnTask;
+    }
+    
+    /// <summary>
+    /// 직원이 현재 타일 위에 서 있을 때, 옆으로 이동해서 작업할 위치를 찾습니다.
+    /// </summary>
+    private Vector2Int? FindAlternativeWorkPosition(
+        TilePathfinder pathfinder,
+        GameMap gameMap,
+        Vector2Int workerPos,
+        Vector2Int targetTile,
+        HashSet<Vector2Int> allTaskTiles,
+        Employee worker)
+    {
+        List<Vector2Int> candidates = new List<Vector2Int>();
+        
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            for (int dy = -3; dy <= 1; dy++)
+            {
+                Vector2Int candidatePos = new Vector2Int(
+                    targetTile.x + dx,
+                    targetTile.y + dy
+                );
+                
+                // 현재 위치는 제외
+                if (candidatePos == workerPos)
+                    continue;
+                
+                // 맵 범위 확인
+                if (candidatePos.x < 0 || candidatePos.x >= GameMap.MAP_WIDTH ||
+                    candidatePos.y < 0 || candidatePos.y >= GameMap.MAP_HEIGHT)
+                    continue;
+                
+                // 작업 대상 타일 위면 제외
+                if (allTaskTiles.Contains(candidatePos))
+                    continue;
+                
+                // 해당 위치가 유효한 위치인지 확인 (서 있을 수 있는지)
+                if (!pathfinder.IsValidPosition(candidatePos))
+                    continue;
+                
+                // 해당 위치에서 타겟에 대해 시야가 확보되는지 확인
+                Vector3Int candidatePos3 = new Vector3Int(candidatePos.x, candidatePos.y, 0);
+                Vector3Int targetTile3 = new Vector3Int(targetTile.x, targetTile.y, 0);
+                
+                // 임시로 worker 위치를 이동시켜서 체크하기 어려우므로,
+                // 간단히 거리 범위만 확인
+                int workDx = Mathf.Abs(targetTile.x - candidatePos.x);
+                int workDy = targetTile.y - candidatePos.y;
+                if (workDx > 1 || workDy < -1 || workDy > 3)
+                    continue;
+                
+                candidates.Add(candidatePos);
+            }
+        }
+        
+        // 가장 가까운 도달 가능한 위치 찾기
+        foreach (var candidate in candidates.OrderBy(c => Vector2Int.Distance(workerPos, c)))
+        {
+            var path = pathfinder.FindPath(workerPos, candidate);
+            if (path != null && path.Count > 0)
+            {
+                return candidate;
             }
         }
         
@@ -139,47 +334,88 @@ public class WorkTaskQueue
     }
     
     /// <summary>
-    /// 작업 점수 계산 (낮을수록 좋음)
+    /// 작업 대상에 도달 가능한 작업 위치를 찾습니다.
     /// </summary>
-    private float CalculateTaskScore(WorkTask task, Employee worker, Vector3 workerPos)
+    private Vector2Int? FindReachableWorkPosition(
+        TilePathfinder pathfinder, 
+        Vector2Int workerPos, 
+        Vector3Int targetTilePos,
+        HashSet<Vector2Int> allTaskTiles,
+        Employee worker)
     {
-        float priorityScore = task.priority;
+        if (pathfinder == null) return null;
         
-        if (useDistancePriority)
+        List<Vector2Int> candidates = new List<Vector2Int>();
+        
+        for (int dx = -1; dx <= 1; dx++)
         {
-            Vector3 taskPos = task.GetPosition();
-            float distance = Vector3.Distance(workerPos, taskPos);
-            
-            // 작업 범위 내에 있으면 보너스
-            Vector3Int taskTilePos = new Vector3Int(
-                Mathf.FloorToInt(taskPos.x),
-                Mathf.FloorToInt(taskPos.y),
-                0
-            );
-            
-            if (worker.IsPositionInWorkRange(taskTilePos))
+            for (int dy = -3; dy <= 1; dy++)
             {
-                distance = 0; // 범위 내는 거리 0으로 취급
+                Vector2Int candidatePos = new Vector2Int(
+                    targetTilePos.x + dx,
+                    targetTilePos.y + dy
+                );
+                
+                // 맵 범위 확인
+                if (candidatePos.x < 0 || candidatePos.x >= GameMap.MAP_WIDTH ||
+                    candidatePos.y < 0 || candidatePos.y >= GameMap.MAP_HEIGHT)
+                    continue;
+                
+                // 작업 대상 타일 위면 제외
+                if (allTaskTiles.Contains(candidatePos))
+                    continue;
+                
+                // 해당 위치가 유효한 위치인지 확인
+                if (!pathfinder.IsValidPosition(candidatePos))
+                    continue;
+                
+                // 해당 위치에서 타겟까지 거리 범위 확인
+                int workDx = Mathf.Abs(targetTilePos.x - candidatePos.x);
+                int workDy = targetTilePos.y - candidatePos.y;
+                if (workDx > 1 || workDy < -1 || workDy > 3)
+                    continue;
+                
+                candidates.Add(candidatePos);
             }
-            
-            // 점수 = 우선순위 + (거리 * 가중치)
-            return priorityScore + (distance * distanceWeight);
         }
         
-        return priorityScore;
+        if (candidates.Count == 0)
+            return null;
+        
+        // 가장 가까운 도달 가능한 위치 찾기
+        foreach (var candidate in candidates.OrderBy(c => Vector2Int.Distance(workerPos, c)))
+        {
+            if (candidate == workerPos)
+                return candidate;
+            
+            var path = pathfinder.FindPath(workerPos, candidate);
+            if (path != null && path.Count > 0)
+            {
+                return candidate;
+            }
+        }
+        
+        return null;
     }
     
-    /// <summary>
-    /// 작업 완료 처리
-    /// </summary>
+    private void SortPendingTasks()
+    {
+        pendingTasks = pendingTasks
+            .OrderBy(t => t.priority)
+            .ThenBy(t => t.createdTime)
+            .ToList();
+    }
+    
+    #endregion
+    
+    #region 작업 완료/취소
+    
     public void CompleteTask(WorkTask task)
     {
         if (task == null) return;
         
-        // 작업 완료
         task.Complete();
         
-        // 리스트 이동
         if (assignedTasks.Contains(task))
         {
             assignedTasks.Remove(task);
@@ -191,19 +427,14 @@ public class WorkTaskQueue
         
         completedTasks.Add(task);
         
-        // 이벤트 발생
         OnTaskCompleted?.Invoke(task);
         
-        // 모든 작업 완료 확인
         if (pendingTasks.Count == 0 && assignedTasks.Count == 0)
         {
             OnAllTasksCompleted?.Invoke(task);
         }
     }
     
-    /// <summary>
-    /// 작업 취소 (큐에서 제거)
-    /// </summary>
     public void CancelTask(WorkTask task)
     {
         if (task == null) return;
@@ -216,9 +447,6 @@ public class WorkTaskQueue
         OnTaskCancelled?.Invoke(task);
     }
     
-    /// <summary>
-    /// 특정 직원의 작업 할당 해제 (작업은 다시 대기 상태로)
-    /// </summary>
     public void UnassignWorkerTasks(Employee worker)
     {
         if (worker == null) return;
@@ -235,42 +463,20 @@ public class WorkTaskQueue
         SortPendingTasks();
     }
     
-    /// <summary>
-    /// 특정 직원에게 할당된 작업 반환
-    /// </summary>
     public WorkTask GetWorkerTask(Employee worker)
     {
         return assignedTasks.FirstOrDefault(t => t.assignedWorker == worker);
     }
     
-    /// <summary>
-    /// 특정 직원이 이 큐에서 작업 중인지 확인
-    /// </summary>
     public bool IsWorkerAssigned(Employee worker)
     {
         return assignedTasks.Any(t => t.assignedWorker == worker);
     }
     
-    /// <summary>
-    /// 대기 중인 작업 정렬
-    /// </summary>
-    private void SortPendingTasks()
-    {
-        pendingTasks = pendingTasks
-            .OrderBy(t => t.priority)
-            .ThenBy(t => t.createdTime)
-            .ToList();
-    }
-    
-    /// <summary>
-    /// 유효하지 않은 작업 제거 (이미 파괴된 타일 등)
-    /// </summary>
     public void CleanupInvalidTasks()
     {
-        // 대기 중인 작업 중 유효하지 않은 것 제거
         pendingTasks.RemoveAll(t => !t.IsValid());
         
-        // 할당된 작업 중 유효하지 않은 것 처리
         var invalidAssigned = assignedTasks.Where(t => !t.IsValid()).ToList();
         foreach (var task in invalidAssigned)
         {
@@ -278,19 +484,14 @@ public class WorkTaskQueue
         }
     }
     
-    /// <summary>
-    /// 모든 작업 취소
-    /// </summary>
     public void CancelAll()
     {
-        // 할당된 작업 취소
         foreach (var task in assignedTasks.ToList())
         {
             task.Cancel();
         }
         assignedTasks.Clear();
         
-        // 대기 중인 작업 취소
         foreach (var task in pendingTasks.ToList())
         {
             task.Cancel();
@@ -298,9 +499,10 @@ public class WorkTaskQueue
         pendingTasks.Clear();
     }
     
-    /// <summary>
-    /// 전체 진행률 반환 (0~1)
-    /// </summary>
+    #endregion
+    
+    #region 상태 확인
+    
     public float GetProgress()
     {
         int total = pendingTasks.Count + assignedTasks.Count + completedTasks.Count;
@@ -309,25 +511,16 @@ public class WorkTaskQueue
         return (float)completedTasks.Count / total;
     }
     
-    /// <summary>
-    /// 완료 여부 확인
-    /// </summary>
     public bool IsCompleted()
     {
         return pendingTasks.Count == 0 && assignedTasks.Count == 0;
     }
     
-    /// <summary>
-    /// 남은 작업이 있는지 확인
-    /// </summary>
     public bool HasPendingTasks()
     {
         return pendingTasks.Count > 0;
     }
     
-    /// <summary>
-    /// 특정 위치의 작업이 있는지 확인
-    /// </summary>
     public bool HasTaskAtPosition(Vector3Int position)
     {
         Vector3 posFloat = new Vector3(position.x, position.y, 0);
@@ -336,7 +529,10 @@ public class WorkTaskQueue
                assignedTasks.Any(t => Vector3.Distance(t.GetPosition(), posFloat) < 0.5f);
     }
     
-    // 읽기 전용 프로퍼티
+    #endregion
+    
+    #region 프로퍼티
+    
     public int PendingCount => pendingTasks.Count;
     public int AssignedCount => assignedTasks.Count;
     public int CompletedCount => completedTasks.Count;
@@ -345,4 +541,6 @@ public class WorkTaskQueue
     public IReadOnlyList<WorkTask> PendingTasks => pendingTasks;
     public IReadOnlyList<WorkTask> AssignedTasks => assignedTasks;
     public IReadOnlyList<WorkTask> CompletedTasks => completedTasks;
+    
+    #endregion
 }
