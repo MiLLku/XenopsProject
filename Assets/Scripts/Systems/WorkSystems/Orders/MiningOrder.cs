@@ -23,6 +23,14 @@ public class MiningOrder : IWorkTarget
     {
         if (completed) return; // 중복 완료 방지
         
+        // ★ 디버그: 채굴 완료 시 직원 위치와 타겟 위치 출력
+        if (worker != null)
+        {
+            Vector3Int footTile = worker.GetFootTile();
+            Debug.Log($"[MiningOrder] ★채굴완료★ 직원발위치={footTile}, 채굴타겟={position}, " +
+                      $"거리: dx={Mathf.Abs(position.x - footTile.x)}, dy={position.y - footTile.y}");
+        }
+        
         completed = true;
         assignedWorker = null;
         

@@ -93,6 +93,19 @@ TextureImporter:
     ignorePlatformSupport: 0
     androidETC2FallbackOverride: 0
     forceMaximumCompressionQuality_BC6H_BC7: 0
+  - serializedVersion: 4
+    buildTarget: Android
+    maxTextureSize: 2048
+    resizeAlgorithm: 0
+    textureFormat: -1
+    textureCompression: 1
+    compressionQuality: 50
+    crunchedCompression: 0
+    allowsAlphaSplitting: 0
+    overridden: 0
+    ignorePlatformSupport: 0
+    androidETC2FallbackOverride: 0
+    forceMaximumCompressionQuality_BC6H_BC7: 0
   spriteSheet:
     serializedVersion: 2
     sprites:
@@ -104,7 +117,7 @@ TextureImporter:
         y: 1008
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -126,7 +139,7 @@ TextureImporter:
         y: 1008
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -148,7 +161,7 @@ TextureImporter:
         y: 1008
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -170,7 +183,7 @@ TextureImporter:
         y: 1008
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -192,7 +205,7 @@ TextureImporter:
         y: 1008
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -214,7 +227,7 @@ TextureImporter:
         y: 756
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -236,7 +249,7 @@ TextureImporter:
         y: 756
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -258,7 +271,7 @@ TextureImporter:
         y: 756
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -280,7 +293,7 @@ TextureImporter:
         y: 756
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -302,7 +315,7 @@ TextureImporter:
         y: 756
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -324,7 +337,7 @@ TextureImporter:
         y: 504
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -346,7 +359,7 @@ TextureImporter:
         y: 504
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -368,7 +381,7 @@ TextureImporter:
         y: 504
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -390,7 +403,7 @@ TextureImporter:
         y: 504
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -408,11 +421,11 @@ TextureImporter:
       name: Tuosa_14
       rect:
         serializedVersion: 2
-        x: 1024
-        y: 504
+        x: 1022
+        y: 506
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -434,7 +447,7 @@ TextureImporter:
         y: 252
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -456,7 +469,7 @@ TextureImporter:
         y: 252
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -478,7 +491,7 @@ TextureImporter:
         y: 252
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -500,7 +513,7 @@ TextureImporter:
         y: 252
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -522,7 +535,7 @@ TextureImporter:
         y: 252
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -544,7 +557,7 @@ TextureImporter:
         y: 0
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -566,7 +579,7 @@ TextureImporter:
         y: 0
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -588,7 +601,7 @@ TextureImporter:
         y: 0
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -607,10 +620,10 @@ TextureImporter:
       rect:
         serializedVersion: 2
         x: 768
-        y: 0
+        y: 2
         width: 256
         height: 252
-      alignment: 0
+      alignment: 6
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
       customData: 
@@ -625,13 +638,35 @@ TextureImporter:
       edges: []
       weights: []
     - serializedVersion: 2
-      name: Tuosa_24
+      name: Tuosa_25
       rect:
         serializedVersion: 2
-        x: 1024
+        x: 0
         y: 0
-        width: 256
-        height: 252
+        width: 1280
+        height: 1260
+      alignment: 7
+      pivot: {x: 0.5, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: 0
+      bones: []
+      spriteID: b9c0b7f159746e048be4864060106c85
+      internalID: -1383067468
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: Tuosa_26
+      rect:
+        serializedVersion: 2
+        x: 0
+        y: 0
+        width: 1280
+        height: 1260
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -640,8 +675,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: 0
       bones: []
-      spriteID: 767f94a04445ecd488a4c770a6bee317
-      internalID: 244641621
+      spriteID: 2b8a9e1a114ef874993403fa036551e6
+      internalID: -778579778
       vertices: []
       indices: 
       edges: []
@@ -678,6 +713,8 @@ TextureImporter:
       Tuosa_22: 1075273397
       Tuosa_23: -337674681
       Tuosa_24: 244641621
+      Tuosa_25: -1383067468
+      Tuosa_26: -778579778
       Tuosa_3: -168828414
       Tuosa_4: 950463277
       Tuosa_5: 297470881

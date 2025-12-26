@@ -499,6 +499,65 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>
             Debug.Log($"[WorkSystemManager] {worker.Data.employeeName}에게 다음 작업 할당 시도...");
         }
 
+        // ★ 직원이 낙하 중이거나 발 아래 바닥이 없으면 착지 후 재시도
+        var movement = worker.GetComponent<EmployeeMovement>();
+        bool needsToWaitForLanding = false;
+        
+        if (movement != null)
+        {
+            if (movement.IsFalling)
+            {
+                needsToWaitForLanding = true;
+                Debug.Log($"[WorkSystemManager] {worker.Data.employeeName}: 낙하 중!");
+            }
+            else
+            {
+                // 발 아래 바닥 체크 (타일이 제거되었을 수 있음)
+                Vector2Int footTile = movement.GetFootTile();
+                Vector2Int groundTile = new Vector2Int(footTile.x, footTile.y - 1);
+                var gameMap = MapGenerator.instance?.GameMapInstance;
+                
+                if (gameMap != null && groundTile.y >= 0)
+                {
+                    int groundTileId = gameMap.TileGrid[groundTile.x, groundTile.y];
+                    bool hasFloor = FloorTile.HasFloorTileAt(groundTile);
+                    
+                    if (groundTileId == 0 && !hasFloor)
+                    {
+                        needsToWaitForLanding = true;
+                        Debug.Log($"[WorkSystemManager] {worker.Data.employeeName}: 발 아래 바닥 없음! ({groundTile})");
+                    }
+                }
+            }
+        }
+        
+        if (needsToWaitForLanding && movement != null)
+        {
+            Debug.Log($"[WorkSystemManager] {worker.Data.employeeName}: 착지 후 재시도 예약");
+            
+            // 착지 이벤트에 한 번만 구독
+            System.Action<Vector2Int> onLandedHandler = null;
+            onLandedHandler = (landedFootTile) =>
+            {
+                movement.OnLanded -= onLandedHandler;
+                Debug.Log($"[WorkSystemManager] {worker.Data.employeeName}: 착지 완료 at {landedFootTile}. 다음 작업 할당 시도");
+                
+                // 착지 후 다음 작업 할당
+                if (!AssignNextTaskFromQueue(worker, order))
+                {
+                    if (showDebugInfo)
+                    {
+                        Debug.Log($"[WorkSystemManager] {worker.Data.employeeName}: 착지 후에도 할당할 작업 없음. 작업자 해제.");
+                    }
+                    order.UnassignWorker(worker);
+                    employeeToOrderMap.Remove(worker);
+                    employeeToTaskMap.Remove(worker);
+                }
+            };
+            movement.OnLanded += onLandedHandler;
+            return;
+        }
+
         if (!AssignNextTaskFromQueue(worker, order))
         {
             // 더 이상 할당할 작업이 없으면 작업자 해제

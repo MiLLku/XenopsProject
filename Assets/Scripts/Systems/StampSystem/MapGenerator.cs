@@ -242,8 +242,7 @@ public class MapGenerator : DestroySingleton<MapGenerator>
 
         Debug.Log($"[PlaceSpawnPackage] '{spawnChestKey}' 스탬프 배치 완료.");
     
-        // ★★★ 직원 스폰 로직 변경 ★★★
-        SetupEmployeeSpawn(startX + 5, groundSurfaceY + 1);
+        SetupEmployeeSpawn(startX + 9, groundSurfaceY + 1);
     }
 
     /// <summary>

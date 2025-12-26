@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -93,7 +94,7 @@ public class Employee : MonoBehaviour
         
         if (showDebugInfo)
         {
-            ShowDebugStatus();
+            //ShowDebugStatus();
         }
     }
     
@@ -232,12 +233,13 @@ public class Employee : MonoBehaviour
 
     /// <summary>
     /// 직원의 현재 발 위치 타일 좌표를 반환합니다.
+    /// 피벗이 Bottom Left이지만, 시각적 위치와 맞추기 위해 반올림 사용
     /// </summary>
     public Vector3Int GetFootTile()
     {
         return new Vector3Int(
-            Mathf.FloorToInt(transform.position.x),
-            Mathf.FloorToInt(transform.position.y) - EMPLOYEE_HEIGHT,
+            Mathf.RoundToInt(transform.position.x),
+            Mathf.FloorToInt(transform.position.y),
             0
         );
     }
@@ -279,11 +281,18 @@ public class Employee : MonoBehaviour
         int dx = Mathf.Abs(targetPosition.x - standingTile.x);
         int dy = targetPosition.y - standingTile.y;
 
+        // ★ 디버그: 항상 로그 출력
+        Debug.Log($"[Employee] {employeeData?.employeeName} 범위체크: " +
+                  $"transform.pos=({transform.position.x:F1},{transform.position.y:F1}), " +
+                  $"발위치={standingTile}, 타겟={targetPosition}, " +
+                  $"dx={dx}, dy={dy} (양수=위, 음수=아래)");
+
         // 1. 기본 범위 체크: 좌우 1칸, 아래 1칸 ~ 위 3칸
         bool inRange = dx <= 1 && dy >= -1 && dy <= 3;
         
         if (!inRange)
         {
+            Debug.LogWarning($"[Employee] {employeeData?.employeeName} - ★범위 밖! (허용: dx<=1, dy:-1~3, 실제: dx={dx}, dy={dy})");
             return false;
         }
         
@@ -291,17 +300,11 @@ public class Employee : MonoBehaviour
         // (타겟 자체는 고체여도 됨 - 그걸 파는 거니까)
         if (!HasLineOfSight(standingTile, targetPosition))
         {
-            if (showDebugInfo)
-            {
-                Debug.Log($"[Employee] {employeeData.employeeName} - 시야 차단됨: {standingTile} -> {targetPosition}");
-            }
+            Debug.LogWarning($"[Employee] {employeeData?.employeeName} - ★시야 차단됨: {standingTile} -> {targetPosition}");
             return false;
         }
 
-        if (showDebugInfo)
-        {
-            Debug.Log($"[Employee] {employeeData.employeeName} - 범위 체크: 서있는 타일 {standingTile}, 타겟 {targetPosition}, dx={dx}, dy={dy}, inRange=true");
-        }
+        Debug.Log($"[Employee] {employeeData?.employeeName} - 범위 OK");
 
         return true;
     }
@@ -309,48 +312,57 @@ public class Employee : MonoBehaviour
     /// <summary>
     /// 직원 위치에서 타겟까지 시야가 확보되는지 확인합니다.
     /// 중간에 고체 타일이 있으면 false를 반환합니다.
+    /// 직원이 서 있는 타일 아래로는 시야가 확보되지 않습니다.
     /// </summary>
     private bool HasLineOfSight(Vector3Int from, Vector3Int to)
     {
         GameMap gameMap = MapGenerator.instance?.GameMapInstance;
-        if (gameMap == null) return true; // 맵이 없으면 일단 통과
+        if (gameMap == null) return true;
         
-        // 직원의 몸통 영역 (발 위치 + 1, 발 위치 + 2)
+        // 직원의 몸통 영역 (발 위치, 발 위치 + 1, 발 위치 + 2)
+        int footY = from.y;
         int bodyY1 = from.y + 1;
         int bodyY2 = from.y + 2;
         
         // 같은 X 좌표인 경우: 수직 방향 체크
         if (from.x == to.x)
         {
-            // 위쪽 타겟
+            // 위쪽 타겟 (머리 위)
             if (to.y > bodyY2)
             {
-                // 머리 위에서 타겟까지 중간 타일 체크
                 for (int y = bodyY2 + 1; y < to.y; y++)
                 {
                     if (IsSolidTile(gameMap, from.x, y))
                         return false;
                 }
             }
-            // 아래쪽 타겟
-            else if (to.y < from.y)
+            // 아래쪽 타겟 (발 아래)
+            else if (to.y < footY)
             {
-                // 발 아래에서 타겟까지 중간 타일 체크 (타겟 바로 위까지만)
-                for (int y = from.y - 1; y > to.y; y--)
+                // 직원이 서 있는 발 위치 타일이 고체이면, 
+                // 그 아래로는 시야가 확보되지 않음!
+                // (자신이 밟고 있는 타일을 통과해서 작업할 수 없음)
+                if (IsSolidTile(gameMap, from.x, footY))
+                {
+                    return false;
+                }
+                
+                // 발 아래부터 타겟까지 중간 타일 체크
+                for (int y = footY - 1; y > to.y; y--)
                 {
                     if (IsSolidTile(gameMap, from.x, y))
                         return false;
                 }
             }
-            // 몸통 높이의 타겟은 항상 접근 가능
+            // 몸통 높이의 타겟 (발 ~ 머리 사이)은 항상 접근 가능
         }
         // 다른 X 좌표인 경우: 옆에서 접근
         else
         {
             int targetX = to.x;
             
-            // 타겟이 몸통 높이 범위 내인 경우 (from.y <= to.y <= bodyY2)
-            if (to.y >= from.y && to.y <= bodyY2)
+            // 타겟이 몸통 높이 범위 내인 경우 (footY <= to.y <= bodyY2)
+            if (to.y >= footY && to.y <= bodyY2)
             {
                 // 바로 옆이면 OK
                 return true;
@@ -359,18 +371,17 @@ public class Employee : MonoBehaviour
             // 타겟이 위쪽인 경우
             if (to.y > bodyY2)
             {
-                // 타겟 바로 아래 타일들이 막혀있는지 체크
                 for (int y = bodyY2 + 1; y < to.y; y++)
                 {
                     if (IsSolidTile(gameMap, targetX, y))
                         return false;
                 }
             }
-            // 타겟이 아래쪽인 경우
-            else if (to.y < from.y)
+            // 타겟이 아래쪽인 경우 (발 아래)
+            else if (to.y < footY)
             {
-                // 발 아래에서 타겟까지
-                for (int y = from.y - 1; y > to.y; y--)
+                // 대각선 아래 작업: 옆 타일의 발 높이부터 체크
+                for (int y = footY; y > to.y; y--)
                 {
                     if (IsSolidTile(gameMap, targetX, y))
                         return false;
@@ -502,10 +513,74 @@ public class Employee : MonoBehaviour
                 SetState(EmployeeState.Moving);
                 Debug.Log($"[Employee] {employeeData.employeeName}: 작업 위치로 이동 {workPosition}");
 
-                // ★ 핵심 수정: 이동 성공/실패 콜백 분리
+                // 낙하 후 재시도를 위한 플래그
+                bool isRetrying = false;
+                
+                // 착지 이벤트 핸들러 (낙하 후 재시도)
+                Action<Vector2Int> onLandedHandler = null;
+                onLandedHandler = (landedTile) => {
+                    // 핸들러 제거
+                    movement.OnLanded -= onLandedHandler;
+                    
+                    // 재시도 중이거나 이미 다른 상태면 무시
+                    if (isRetrying || currentWorkTarget != target)
+                        return;
+                    
+                    isRetrying = true;
+                    
+                    Debug.Log($"[Employee] {employeeData.employeeName}: 착지 완료, 작업 재시도");
+                    
+                    // 착지 후 작업 범위 내인지 확인
+                    if (IsPositionInWorkRange(targetTilePos))
+                    {
+                        StartWork(target);
+                    }
+                    else
+                    {
+                        // 새 위치에서 다시 경로 탐색
+                        Vector3 newWorkPosition = FindWorkablePositionForTarget(targetTilePos);
+                        if (newWorkPosition != Vector3.zero)
+                        {
+                            isRetrying = false;
+                            movement.OnLanded += onLandedHandler; // 다시 등록
+                            
+                            movement.MoveTo(newWorkPosition,
+                                onComplete: () => {
+                                    movement.OnLanded -= onLandedHandler;
+                                    if (IsPositionInWorkRange(targetTilePos))
+                                    {
+                                        StartWork(target);
+                                    }
+                                    else
+                                    {
+                                        Debug.LogWarning($"[Employee] {employeeData.employeeName}: 도착했지만 작업 범위 밖, 작업 취소");
+                                        CancelWork();
+                                    }
+                                },
+                                onFailed: () => {
+                                    // 재시도 실패 - 대기 상태로
+                                    Debug.LogWarning($"[Employee] {employeeData.employeeName}: 재시도 이동 실패");
+                                    // 취소하지 않고 대기 (다음 프레임에 다시 시도될 수 있음)
+                                    SetState(EmployeeState.Idle);
+                                }
+                            );
+                        }
+                        else
+                        {
+                            Debug.LogWarning($"[Employee] {employeeData.employeeName}: 착지 후 작업 가능 위치 없음, 작업 취소");
+                            CancelWork();
+                        }
+                    }
+                };
+                
+                // 착지 이벤트 등록
+                movement.OnLanded += onLandedHandler;
+
                 movement.MoveTo(workPosition, 
                     onComplete: () => {
-                        // 이동 성공 시에만 작업 시작
+                        // 이동 성공 - 착지 핸들러 제거
+                        movement.OnLanded -= onLandedHandler;
+                        
                         Debug.Log($"[Employee] {employeeData.employeeName}: 목적지 도착, 작업 시작");
                         
                         // 도착 후 다시 범위 확인
@@ -520,9 +595,10 @@ public class Employee : MonoBehaviour
                         }
                     },
                     onFailed: () => {
-                        // ★ 이동 실패 시 작업 취소
-                        Debug.LogWarning($"[Employee] {employeeData.employeeName}: 이동 실패, 작업 취소");
-                        CancelWork();
+                        // 이동 실패 (경로 없음 등) - 착지 핸들러는 유지
+                        // 낙하로 인한 실패인 경우 OnLanded에서 재시도됨
+                        Debug.LogWarning($"[Employee] {employeeData.employeeName}: 이동 실패 (낙하 시 재시도 대기)");
+                        // CancelWork() 호출하지 않음 - 착지 후 재시도
                     }
                 );
             }

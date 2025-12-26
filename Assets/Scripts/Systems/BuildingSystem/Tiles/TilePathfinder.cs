@@ -321,20 +321,9 @@ public class TilePathfinder
     
     private bool CanWalkHorizontally(Vector2Int from, Vector2Int to)
     {
-        // 발을 디딜 곳이 있어야 함
-        FloorTile toFloorTile = FloorTile.GetFloorTileAt(to);
-        
-        // 바닥 타일이 있거나, 발 아래에 고체 타일이어야 함
-        bool hasFloor = toFloorTile != null || gameMap.TileGrid[to.x, to.y] != 0;
-        if (!hasFloor)
+        // 목표 위치가 유효한지 (서 있을 수 있는지) 확인
+        if (!IsValidPosition(to))
             return false;
-        
-        // 직원 몸통이 들어갈 2칸이 비어있어야 함
-        for (int i = 1; i <= EMPLOYEE_HEIGHT; i++)
-        {
-            if (!IsSpaceClear(to.x, to.y + i))
-                return false;
-        }
         
         return true;
     }
@@ -409,37 +398,49 @@ public class TilePathfinder
     
     /// <summary>
     /// 직원이 특정 위치에 서 있을 수 있는지 확인합니다.
-    /// 발 아래에 바닥이 있고, 몸통 공간이 비어있어야 합니다.
+    /// pos는 발 위치 (발이 있는 빈 공간)입니다.
+    /// 발 아래(pos.y - 1)에 바닥이 있고, 발~머리 공간이 비어있어야 합니다.
     /// </summary>
     private bool CanStandAt(int x, int y)
     {
         if (!IsInBounds(new Vector2Int(x, y)))
             return false;
         
-        // 발 위치 타일 확인 (서 있는 타일)
-        int footTileId = gameMap.TileGrid[x, y];
+        // 1. 발 아래 타일 (y-1)이 고체이거나 바닥 타일이어야 함
+        int groundY = y - 1;
+        if (groundY < 0)
+            return false;
         
-        // 발 아래가 고체이거나 바닥 타일이어야 함
-        bool hasFooting = footTileId != 0 || FloorTile.HasFloorTileAt(new Vector2Int(x, y));
+        int groundTileId = gameMap.TileGrid[x, groundY];
+        bool hasFloorTile = FloorTile.HasFloorTileAt(new Vector2Int(x, groundY));
+        bool hasGround = groundTileId != 0 || hasFloorTile;
         
         // 사다리 위에 서 있는 경우도 허용
-        if (!hasFooting)
+        if (!hasGround)
         {
-            FloorTile ladder = FloorTile.GetFloorTileAt(new Vector2Int(x, y));
+            FloorTile ladder = FloorTile.GetFloorTileAt(new Vector2Int(x, groundY));
             if (ladder == null || !ladder.AllowsVerticalMovement())
-                return false;
+            {
+                // 현재 위치에 사다리가 있는지도 확인
+                FloorTile currentLadder = FloorTile.GetFloorTileAt(new Vector2Int(x, y));
+                if (currentLadder == null || !currentLadder.AllowsVerticalMovement())
+                    return false;
+            }
         }
         
-        // 직원 몸통 공간 (발 위로 2칸)이 비어있어야 함
-        for (int i = 1; i <= EMPLOYEE_HEIGHT; i++)
+        // 2. 직원 몸통 공간 (발 위치 + 발 위 1칸)이 비어있어야 함
+        for (int i = 0; i < EMPLOYEE_HEIGHT; i++)
         {
             int checkY = y + i;
             if (!IsInBounds(new Vector2Int(x, checkY)))
                 return false;
             
-            // 해당 위치가 비어있어야 함 (고체 타일 통과 불가!)
+            // 해당 위치가 비어있어야 함
             if (!IsSpaceClear(x, checkY))
+            {
+                Debug.Log($"[Pathfinder] CanStandAt({x},{y}): 몸통({x},{checkY})이 막혀있음, tileId={gameMap.TileGrid[x, checkY]}");
                 return false;
+            }
         }
         
         return true;

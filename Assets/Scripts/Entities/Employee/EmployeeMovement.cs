@@ -71,10 +71,56 @@ public class EmployeeMovement : MonoBehaviour
         {
             gameMap = MapGenerator.instance.GameMapInstance;
             pathfinder = new TilePathfinder(gameMap);
+            
+            // 피벗 변경 후 위치 보정: 직원이 고체 안에 있으면 위로 밀어냄
+            AdjustPositionIfInsideSolid();
         }
         else
         {
             Debug.LogError("[EmployeeMovement] MapGenerator를 찾을 수 없습니다!");
+        }
+    }
+    
+    /// <summary>
+    /// 직원이 고체 타일 안에 있으면 위로 밀어냅니다.
+    /// 피벗 변경 등으로 인해 잘못된 위치에 있을 때 보정합니다.
+    /// </summary>
+    private void AdjustPositionIfInsideSolid()
+    {
+        if (gameMap == null) return;
+        
+        Vector2Int footTile = GetFootTile();
+        
+        // 발 위치가 고체인지 확인
+        if (footTile.x >= 0 && footTile.x < GameMap.MAP_WIDTH &&
+            footTile.y >= 0 && footTile.y < GameMap.MAP_HEIGHT)
+        {
+            int tileId = gameMap.TileGrid[footTile.x, footTile.y];
+            if (tileId != 0) // 고체 안에 있음
+            {
+                // 위로 올려서 빈 공간 찾기
+                for (int dy = 1; dy <= 10; dy++)
+                {
+                    int checkY = footTile.y + dy;
+                    if (checkY >= GameMap.MAP_HEIGHT) break;
+                    
+                    int checkTileId = gameMap.TileGrid[footTile.x, checkY];
+                    if (checkTileId == 0) // 빈 공간 발견
+                    {
+                        // 그 아래가 고체인지 확인 (서 있을 수 있는지)
+                        int groundY = checkY - 1;
+                        if (groundY >= 0 && gameMap.TileGrid[footTile.x, groundY] != 0)
+                        {
+                            Vector3 newPos = new Vector3(transform.position.x, checkY, transform.position.z);
+                            Debug.Log($"[EmployeeMovement] 위치 보정: {transform.position} -> {newPos}");
+                            transform.position = newPos;
+                            return;
+                        }
+                    }
+                }
+                
+                Debug.LogWarning($"[EmployeeMovement] 위치 보정 실패: 직원이 고체 안에 갇혀있음 {footTile}");
+            }
         }
     }
 
@@ -89,9 +135,14 @@ public class EmployeeMovement : MonoBehaviour
     {
         if (gameMap == null) return;
 
-        Vector2Int currentTile = GetFootTile();
+        // 현재 발이 속한 타일 좌표
+        Vector2Int footTile = GetFootTile();
+        
+        // 바닥 체크: 발 위치 아래 타일 (발 - 1)이 고체인지 확인
+        // ★ 중요: footTile.x 기준으로 체크 (transform.x가 아닌 정수 타일 좌표)
+        Vector2Int groundTile = new Vector2Int(footTile.x, footTile.y - 1);
 
-        if (!HasGroundAt(currentTile))
+        if (!HasGroundAt(groundTile))
         {
             if (!isFalling)
             {
@@ -104,21 +155,24 @@ public class EmployeeMovement : MonoBehaviour
 
                 if (showDebugLogs)
                 {
-                    Debug.Log($"[EmployeeMovement] 바닥 없음! 낙하 시작: {currentTile}");
+                    Debug.Log($"[EmployeeMovement] 바닥 없음! 낙하 시작: 발={footTile}, 바닥체크={groundTile}");
                 }
             }
 
             transform.position += Vector3.down * fallSpeed * Time.deltaTime;
 
-            Vector2Int newTile = GetFootTile();
-            if (HasGroundAt(newTile))
+            // 새 위치에서 바닥 체크
+            Vector2Int newFootTile = GetFootTile();
+            Vector2Int newGroundTile = new Vector2Int(newFootTile.x, newFootTile.y - 1);
+            
+            if (HasGroundAt(newGroundTile))
             {
-                LandOnGround(newTile);
+                LandOnGround(newGroundTile);
             }
         }
         else if (isFalling)
         {
-            LandOnGround(currentTile);
+            LandOnGround(groundTile);
         }
     }
 
@@ -175,14 +229,47 @@ public class EmployeeMovement : MonoBehaviour
     {
         isFalling = false;
 
-        Vector3 landingPos = TileToWorld(groundTile);
+        // groundTile = 밟고 있는 고체 타일
+        // 직원 발 위치 = groundTile.y + 1 (그 위 공간)
+        int landingY = groundTile.y + 1;
+        
+        // 안전 체크: 착지 위치가 고체가 아닌지 확인
+        if (landingY < GameMap.MAP_HEIGHT && gameMap.TileGrid[groundTile.x, landingY] != 0)
+        {
+            // 착지 위치가 고체! 위로 올려서 빈 공간 찾기
+            for (int dy = 1; dy <= 5; dy++)
+            {
+                int checkY = landingY + dy;
+                if (checkY >= GameMap.MAP_HEIGHT) break;
+                
+                if (gameMap.TileGrid[groundTile.x, checkY] == 0)
+                {
+                    landingY = checkY;
+                    Debug.Log($"[EmployeeMovement] 착지 위치 보정: {groundTile.y + 1} -> {landingY}");
+                    break;
+                }
+            }
+        }
+        
+        // ★ 착지 시 반올림으로 스냅 (시각적 위치와 맞춤)
+        int snappedX = Mathf.RoundToInt(transform.position.x);
+        Vector3 landingPos = new Vector3(snappedX, landingY, 0);
         transform.position = landingPos;
 
         if (showDebugLogs)
         {
-            Debug.Log($"[EmployeeMovement] 착지 완료: {groundTile}");
+            Debug.Log($"[EmployeeMovement] 착지 완료: 바닥타일={groundTile}, 최종위치={transform.position}");
         }
+        
+        // 착지 이벤트 발생 (발 위치의 타일 좌표)
+        Vector2Int footTile = GetFootTile();
+        OnLanded?.Invoke(footTile);
     }
+    
+    /// <summary>
+    /// 착지 시 발생하는 이벤트
+    /// </summary>
+    public event Action<Vector2Int> OnLanded;
 
     #endregion
 
@@ -417,16 +504,13 @@ public class EmployeeMovement : MonoBehaviour
     
     /// <summary>
     /// 직원의 현재 발 위치 타일 좌표를 반환합니다.
-    /// 직원 중심(transform.position)에서 발 위치로 변환합니다.
+    /// 피벗이 Bottom Left이지만, 시각적 위치와 맞추기 위해 X는 반올림 사용
     /// </summary>
     public Vector2Int GetFootTile()
     {
-        // 직원은 2칸 높이, transform.position은 중심
-        // 중심 y에서 1을 빼면 발 위치 타일의 y+1 (발이 딛고 있는 타일의 위쪽)
-        // 실제 발이 딛고 있는 타일은 중심 y - 2
         return new Vector2Int(
-            Mathf.FloorToInt(transform.position.x),
-            Mathf.FloorToInt(transform.position.y) - EMPLOYEE_HEIGHT
+            Mathf.RoundToInt(transform.position.x),
+            Mathf.FloorToInt(transform.position.y)
         );
     }
 
@@ -435,21 +519,22 @@ public class EmployeeMovement : MonoBehaviour
     /// </summary>
     private Vector2Int WorldToFootTile(Vector3 worldPos)
     {
-        // worldPos가 직원 중심 좌표라고 가정
         return new Vector2Int(
-            Mathf.FloorToInt(worldPos.x),
-            Mathf.FloorToInt(worldPos.y) - EMPLOYEE_HEIGHT
+            Mathf.RoundToInt(worldPos.x),
+            Mathf.FloorToInt(worldPos.y)
         );
     }
 
     /// <summary>
-    /// 타일 좌표를 직원 중심 월드 좌표로 변환합니다.
-    /// 직원이 해당 타일 위에 서 있을 때의 중심 위치입니다.
+    /// 타일 좌표를 직원 월드 좌표로 변환합니다.
+    /// 직원이 해당 타일 위에 서 있을 때의 위치입니다.
     /// </summary>
     private Vector3 TileToWorld(Vector2Int tilePos)
     {
-        // 타일 위에 서 있을 때 직원 중심 = (타일x + 0.5, 타일y + 2, 0)
-        return new Vector3(tilePos.x + 0.5f, tilePos.y + EMPLOYEE_HEIGHT, 0);
+        // 피벗 = Bottom Left
+        // 타일 Y 위에 서 있으려면 발이 Y+1에 있어야 함
+        // (Y는 밟고 있는 고체 타일, Y+1은 발이 있는 공간)
+        return new Vector3(tilePos.x, tilePos.y, 0);
     }
 
     #endregion
