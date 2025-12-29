@@ -94,7 +94,7 @@ public class Employee : MonoBehaviour
         
         if (showDebugInfo)
         {
-            //ShowDebugStatus();
+            ShowDebugStatus();
         }
     }
     
@@ -706,8 +706,9 @@ public class Employee : MonoBehaviour
             Debug.Log($"[Employee] 작업 위치 선택: {bestPos} (타겟: {targetTilePos}, 후보: {candidates.Count}개)");
         }
 
-        // 타일 좌표를 직원 중심 월드 좌표로 변환
-        return new Vector3(bestPos.x + 0.5f, bestPos.y + EMPLOYEE_HEIGHT, 0);
+        // 타일 좌표를 월드 좌표로 변환
+        // 피벗 = Bottom-Left이므로, 발 위치 타일 = transform.position
+        return new Vector3(bestPos.x, bestPos.y, 0);
     }
 
     private struct WorkPositionCandidate

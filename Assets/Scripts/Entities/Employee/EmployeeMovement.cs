@@ -389,7 +389,7 @@ public class EmployeeMovement : MonoBehaviour
 
         if (showDebugLogs)
         {
-            Debug.Log($"[EmployeeMovement] Lerp 이동: {startPos} -> {endPos}");
+            Debug.Log($"[EmployeeMovement] Lerp 이동 시작: {startPos} -> {endPos}, TileToWorld({targetTile}) = {endPos}");
         }
 
         float speedModifier = 1f + Mathf.Abs(heightDiff) * 0.2f;
@@ -402,13 +402,19 @@ public class EmployeeMovement : MonoBehaviour
             float distCovered = (Time.time - startTime) * actualSpeed;
             float fractionOfJourney = distCovered / journeyLength;
 
-            transform.position = Vector3.Lerp(startPos, endPos, fractionOfJourney);
+            Vector3 newPos = Vector3.Lerp(startPos, endPos, fractionOfJourney);
+            transform.position = newPos;
             UpdateSpriteDirection(endPos.x - startPos.x);
 
             yield return null;
         }
 
         transform.position = endPos;
+        
+        if (showDebugLogs)
+        {
+            Debug.Log($"[EmployeeMovement] Lerp 이동 완료: 최종위치={transform.position}");
+        }
     }
 
     private IEnumerator MoveToPositionCoroutine(Vector3 targetPos)
@@ -527,13 +533,13 @@ public class EmployeeMovement : MonoBehaviour
 
     /// <summary>
     /// 타일 좌표를 직원 월드 좌표로 변환합니다.
-    /// 직원이 해당 타일 위에 서 있을 때의 위치입니다.
+    /// tilePos는 발 위치 타일 좌표입니다 (피벗이 Bottom Left이므로 transform.position과 동일).
     /// </summary>
     private Vector3 TileToWorld(Vector2Int tilePos)
     {
-        // 피벗 = Bottom Left
-        // 타일 Y 위에 서 있으려면 발이 Y+1에 있어야 함
-        // (Y는 밟고 있는 고체 타일, Y+1은 발이 있는 공간)
+        // tilePos = 발 위치 타일
+        // 피벗 = Bottom Left, transform.position = 발 위치
+        // 따라서 그대로 반환
         return new Vector3(tilePos.x, tilePos.y, 0);
     }
 

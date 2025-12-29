@@ -4,13 +4,23 @@ using UnityEngine.Tilemaps;
 using UnityEngine.EventSystems;
 using System.Linq;
 
+/// <summary>
+/// 상호작용 관리자
+/// 플레이어 입력 처리, 모드 전환, 드래그 선택 등을 담당합니다.
+/// 
+/// 저장 위치: Assets/Scripts/Core/Manager/InteractionManager.cs
+/// 
+/// [수정 사항]
+/// - Build 모드를 ConstructionManager와 연동하도록 변경
+/// - 기존 placementGhost 관련 코드 제거 (ConstructionManager로 이전)
+/// - 건설 현장 클릭 처리 추가
+/// </summary>
 public class InteractionManager : DestroySingleton<InteractionManager> 
 {
-    // 상호작용 모드 정의
     public enum InteractMode
     {
-        Normal,     // 일반 모드 (직원, 건물, 작업물 클릭)
-        Mine,       // 채광 모드 (드래그로 영역 지정 -> Q로 확정)
+        Normal,
+        Mine,
         Harvest,
         Build,
         Demolish
@@ -22,7 +32,6 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     
     [Header("프리팹 연결")]
     [SerializeField] private GameObject selectionBoxPrefab;
-    [Tooltip("작업 외곽선을 표시할 프리팹 (WorkOrderVisual 스크립트 포함)")]
     [SerializeField] private GameObject workOrderVisualPrefab; 
     
     [Header("드래그 선택 색상")]
@@ -31,9 +40,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     [SerializeField] private Color demolishSelectionColor = new Color(1, 0, 0, 0.3f);
     
     [Header("건설 설정")]
-    [SerializeField] private GameObject placementGhostPrefab;
-    [SerializeField] private Color validColor = new Color(0, 1, 0, 0.5f);
-    [SerializeField] private Color invalidColor = new Color(1, 0, 0, 0.5f);
+    [SerializeField] private ConstructionUI constructionUI;
     
     [Header("작업 설정")]
     [SerializeField] private int defaultMiningWorkers = 3;
@@ -54,22 +61,17 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     private CameraController _cameraController;
     private WorkSystemManager _workSystemManager;
     private TileHighlighter _tileHighlighter;
+    private ConstructionManager _constructionManager;
     
     // 모드 관리
     private InteractMode _currentMode = InteractMode.Normal;
     
-    // ★ 예약(Pending) 시스템 변수 (채광용)
+    // 예약 시스템 (채광용)
     private HashSet<Vector3Int> _pendingMiningTiles = new HashSet<Vector3Int>();
     private WorkOrderVisual _pendingVisual; 
     private GameObject _pendingVisualObject; 
-
-    // 건설 모드 변수
-    private BuildingData _buildingToBuild;
-    private GameObject _ghostParent;
-    private List<SpriteRenderer> _ghostSprites = new List<SpriteRenderer>();
-    private bool _isPlacementValid = false;
     
-    // 드래그 선택 변수
+    // 드래그 선택
     private bool _isDragging = false;
     private Vector3 _dragStartPos;
     private Vector3 _dragEndPos;
@@ -105,6 +107,20 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         _cameraController = Camera.main.GetComponent<CameraController>();
         _workSystemManager = WorkSystemManager.instance;
         _tileHighlighter = TileHighlighter.instance;
+        _constructionManager = ConstructionManager.instance;
+        
+        if (_constructionManager != null)
+        {
+            _constructionManager.OnPlacementModeChanged += OnConstructionPlacementModeChanged;
+        }
+    }
+    
+    void OnDestroy()
+    {
+        if (_constructionManager != null)
+        {
+            _constructionManager.OnPlacementModeChanged -= OnConstructionPlacementModeChanged;
+        }
     }
 
     void Update()
@@ -139,10 +155,11 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         
         if (_isDragging && _selectionBox != null && _currentMode != InteractMode.Mine)
         {
-            // Mine 모드에서는 자체 Visual을 쓰므로 기본 박스는 숨기거나 다른 용도로 사용
             UpdateSelectionBox();
         }
     }
+    
+    #region 초기화
     
     private void CreateSelectionBox()
     {
@@ -168,7 +185,10 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         return Sprite.Create(tex, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 1);
     }
     
-    // ★★★ 키 입력 처리 로직 수정 (Q 토글 적용) ★★★
+    #endregion
+    
+    #region 모드 관리
+    
     private void HandleModeHotkeys()
     {
         if (Input.GetKeyDown(KeyCode.Tab) || Input.GetKeyDown(KeyCode.Escape))
@@ -177,7 +197,6 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         }
         else if (Input.GetKeyDown(KeyCode.Q))
         {
-            // Mine 모드이면 확정하고 나감, 아니면 진입
             if (_currentMode == InteractMode.Mine)
             {
                 ConfirmMiningSelection();
@@ -194,9 +213,13 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         else if (Input.GetKeyDown(KeyCode.B))
         {
             if (_currentMode == InteractMode.Build)
+            {
                 SetMode(InteractMode.Normal);
+            }
             else
-                EnterBuildMode(testBuildingToBuild);
+            {
+                SetMode(InteractMode.Build);
+            }
         }
         else if (Input.GetKeyDown(KeyCode.R))
         {
@@ -211,10 +234,16 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         ExitCurrentMode();
         _currentMode = mode;
     
-        // 모드 진입 시 초기화
         if (mode == InteractMode.Mine)
         {
             PrepareMiningPendingVisual();
+        }
+        else if (mode == InteractMode.Build)
+        {
+            if (constructionUI != null)
+            {
+                constructionUI.Open();
+            }
         }
     
         Debug.Log($"[Interaction] 모드 변경: {mode}");
@@ -227,15 +256,21 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     {
         CancelDrag();
         
-        // 채광 모드를 나갈 때, 확정되지 않은 예약 내역은 취소(초기화)
-        // 단, ConfirmMiningSelection을 통해 나가는 경우는 이미 작업이 생성된 후임
         if (_currentMode == InteractMode.Mine)
         {
             ClearMiningPending();
         }
         else if (_currentMode == InteractMode.Build)
         {
-            ExitBuildMode();
+            if (constructionUI != null)
+            {
+                constructionUI.Close();
+            }
+            
+            if (_constructionManager != null && _constructionManager.IsPlacementMode)
+            {
+                _constructionManager.ExitPlacementMode();
+            }
         }
     }
     
@@ -253,16 +288,23 @@ public class InteractionManager : DestroySingleton<InteractionManager>
             default: sr.color = new Color(1, 1, 1, 0.3f); break;
         }
     }
+    
+    private void OnConstructionPlacementModeChanged(bool isActive, BuildingData buildingData)
+    {
+        // 배치 모드 변경 시 필요한 처리
+    }
+    
+    public InteractMode GetCurrentMode() => _currentMode;
+    
+    #endregion
 
-    #region 일반 모드 (Normal Mode)
+    #region Normal 모드
     
     private void HandleNormalMode()
     {
-        // 마우스 위치에서 레이캐스트
         Vector3 mousePos = _cameraController.GetMouseWorldPosition();
         RaycastHit2D hit = Physics2D.Raycast(mousePos, Vector2.zero);
 
-        // 호버 처리
         if (hit.collider != null)
         {
             GameObject hitObject = hit.collider.gameObject;
@@ -277,14 +319,9 @@ public class InteractionManager : DestroySingleton<InteractionManager>
             ClearHover();
         }
 
-        // 클릭 처리 - UI 위에 있는지 확인
         if (Input.GetMouseButtonDown(0))
         {
-            // UI 버튼이나 인터랙티브한 UI 위에 있으면 무시
-            if (IsPointerOverInteractiveUI())
-            {
-                return;
-            }
+            if (IsPointerOverInteractiveUI()) return;
 
             if (hit.collider != null)
             {
@@ -293,45 +330,48 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         }
     }
 
-    /// <summary>
-    /// 마우스가 클릭 가능한 UI 위에 있는지 확인
-    /// </summary>
     private bool IsPointerOverInteractiveUI()
     {
         if (EventSystem.current == null) return false;
 
-        var eventData = new UnityEngine.EventSystems.PointerEventData(EventSystem.current)
+        var eventData = new PointerEventData(EventSystem.current)
         {
             position = Input.mousePosition
         };
 
-        var results = new System.Collections.Generic.List<UnityEngine.EventSystems.RaycastResult>();
+        var results = new List<RaycastResult>();
         EventSystem.current.RaycastAll(eventData, results);
 
-        // Button, Toggle, Slider 등 실제로 클릭 가능한 UI 컴포넌트만 확인
         foreach (var result in results)
         {
-            // Selectable 컴포넌트(Button, Toggle, Slider 등)가 있으면 차단
             if (result.gameObject.GetComponent<UnityEngine.UI.Selectable>() != null)
             {
                 return true;
             }
         }
 
-        return false; // 일반 Panel, Text, Image는 통과 (작업 더미 클릭 가능)
+        return false;
     }
     
     private void HandleNormalModeClick(GameObject clickedObject)
     {
-        // 0. 작업 더미(Visual) 클릭 처리 (UI 오픈용)
+        // 작업 더미 클릭
         WorkOrderVisual workVisual = clickedObject.GetComponent<WorkOrderVisual>();
         if (workVisual != null)
         {
             workVisual.OnClicked();
             return;
         }
+        
+        // 건설 현장 클릭
+        ConstructionSite constructionSite = clickedObject.GetComponent<ConstructionSite>();
+        if (constructionSite != null)
+        {
+            OnConstructionSiteClicked(constructionSite);
+            return;
+        }
 
-        // 1. 직원 클릭
+        // 직원 클릭
         Employee employee = clickedObject.GetComponent<Employee>();
         if (employee != null)
         {
@@ -339,7 +379,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
             return;
         }
         
-        // 2. 건물 클릭
+        // 건물 클릭
         Building building = clickedObject.GetComponent<Building>();
         if (building != null)
         {
@@ -347,10 +387,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
             return;
         }
         
-        // 3. 작업대 등 기타 상호작용...
-        CraftingTable craftingTable = clickedObject.GetComponent<CraftingTable>();
-        if (craftingTable != null) return; // 작업대는 자체 클릭 처리
-        
+        // 수확 가능 오브젝트 클릭
         IHarvestable harvestable = clickedObject.GetComponent<IHarvestable>();
         if (harvestable != null)
         {
@@ -366,7 +403,12 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         if (_hoveredRenderer != null)
         {
             _originalColor = _hoveredRenderer.color;
-            _hoveredRenderer.color = new Color(_originalColor.r * 1.2f, _originalColor.g * 1.2f, _originalColor.b * 1.2f, _originalColor.a);
+            _hoveredRenderer.color = new Color(
+                _originalColor.r * 1.2f, 
+                _originalColor.g * 1.2f, 
+                _originalColor.b * 1.2f, 
+                _originalColor.a
+            );
         }
     }
     
@@ -380,17 +422,35 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         _hoveredRenderer = null;
     }
     
-    private void OnEmployeeClicked(Employee employee) { /* UI 표시 로직 */ }
-    private void OnBuildingClicked(Building building) { /* UI 표시 로직 */ }
-    private void OnHarvestableClicked(IHarvestable harvestable, GameObject obj) { /* 정보 표시 */ }
+    private void OnEmployeeClicked(Employee employee)
+    {
+        Debug.Log($"[Interaction] 직원 클릭: {employee.name}");
+    }
+    
+    private void OnBuildingClicked(Building building)
+    {
+        Debug.Log($"[Interaction] 건물 클릭: {building.buildingData?.buildingName}");
+    }
+    
+    private void OnHarvestableClicked(IHarvestable harvestable, GameObject obj)
+    {
+        Debug.Log($"[Interaction] 수확 가능 오브젝트 클릭: {obj.name}");
+    }
+    
+    private void OnConstructionSiteClicked(ConstructionSite site)
+    {
+        if (site.WorkOrder != null && _workSystemManager != null)
+        {
+            _workSystemManager.ShowAssignmentUI(site.WorkOrder, null, Input.mousePosition);
+        }
+    }
     
     #endregion
 
-    #region 채광 모드 (예약 시스템 적용)
+    #region 채광 모드
     
     private void PrepareMiningPendingVisual()
     {
-        // 예약용 비주얼 생성 (기존 프리팹 활용)
         if (_pendingVisualObject == null && workOrderVisualPrefab != null)
         {
             _pendingVisualObject = Instantiate(workOrderVisualPrefab);
@@ -407,7 +467,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         _pendingMiningTiles.Clear();
         if (_pendingVisualObject != null)
         {
-            Destroy(_pendingVisualObject); // 비주얼 삭제
+            Destroy(_pendingVisualObject);
             _pendingVisualObject = null;
             _pendingVisual = null;
         }
@@ -415,22 +475,18 @@ public class InteractionManager : DestroySingleton<InteractionManager>
 
     private void HandleMineMode()
     {
-        // 드래그 시작 (좌클릭: 추가, 우클릭: 제거)
         if (Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1))
         {
             _dragStartPos = _cameraController.GetMouseWorldPosition();
             _isDragging = true;
         }
         
-        // 드래그 중 위치 업데이트
         if (_isDragging)
         {
             _dragEndPos = _cameraController.GetMouseWorldPosition();
-            // 선택 박스 표시 (선택사항)
             UpdateSelectionBox();
         }
         
-        // 드래그 끝 (마우스 뗌) -> ★작업 생성이 아니라 '예약 목록'에만 추가/제거★
         if ((Input.GetMouseButtonUp(0) || Input.GetMouseButtonUp(1)) && _isDragging)
         {
             bool isAdding = Input.GetMouseButtonUp(0); 
@@ -456,7 +512,6 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         {
             for (int y = minY; y <= maxY; y++)
             {
-                // 추가할 때: 채광 가능한 타일인지 확인
                 if (isAdding)
                 {
                     if (CanMineTile(x, y)) 
@@ -464,42 +519,34 @@ public class InteractionManager : DestroySingleton<InteractionManager>
                 }
                 else
                 {
-                    // 제거할 때: 범위 내 타일이면 리스트에 넣음
                     currentSelection.Add(new Vector3Int(x, y, 0));
                 }
             }
         }
 
-        // HashSet 연산
         if (isAdding)
         {
-            _pendingMiningTiles.UnionWith(currentSelection); // 합집합
+            _pendingMiningTiles.UnionWith(currentSelection);
         }
         else
         {
-            _pendingMiningTiles.ExceptWith(currentSelection); // 차집합
+            _pendingMiningTiles.ExceptWith(currentSelection);
         }
 
-        // 비주얼 실시간 업데이트
         if (_pendingVisual != null)
         {
             _pendingVisual.UpdateTiles(_pendingMiningTiles.ToList());
         }
     }
 
-    /// <summary>
-    /// [Q] 키를 눌렀을 때 호출: 예약된 모든 타일을 '하나의 작업'으로 확정
-    /// </summary>
     private void ConfirmMiningSelection()
     {
         if (_pendingMiningTiles.Count > 0)
         {
-            // ★ 여기서 실제 작업 생성 (한 번만 호출됨)
             CreateMiningWorkOrder(_pendingMiningTiles.ToList());
             Debug.Log($"[Interaction] 채광 작업 확정: {_pendingMiningTiles.Count}개 타일");
         }
         
-        // 일반 모드로 복귀 (이 과정에서 ClearMiningPending이 호출되어 임시 비주얼은 삭제됨)
         SetMode(InteractMode.Normal);
     }
 
@@ -508,10 +555,8 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         if (x < 0 || x >= GameMap.MAP_WIDTH || y < 0 || y >= GameMap.MAP_HEIGHT) return false;
         
         int tileID = _gameMap.TileGrid[x, y];
-        // 0: 공기, 7: 이미 가공된 바닥(또는 다른 식별자)은 채광 불가
         if (tileID == 0 || tileID == 7) return false;
 
-        // 이미 다른 작업에 포함된 타일인지 확인 (중복 생성 방지)
         if (_workSystemManager != null && _workSystemManager.IsTileUnderWork(new Vector3Int(x, y, 0)))
         {
             return false; 
@@ -524,7 +569,6 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     {
         if (_workSystemManager == null) return;
     
-        // 비주얼 생성 및 작업 등록
         WorkOrderVisual visual = _workSystemManager.CreateWorkOrderWithVisual(
             $"채광 작업 ({tiles.Count}개)",
             WorkType.Mining,
@@ -533,7 +577,6 @@ public class InteractionManager : DestroySingleton<InteractionManager>
             priority: 3
         );
     
-        // 데이터 연결
         if (visual != null)
         {
             WorkOrder workOrder = visual.WorkOrder;
@@ -561,7 +604,6 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     
     private void HandleHarvestMode()
     {
-        // ... (기존 코드와 동일하게 드래그로 선택) ...
         if (Input.GetMouseButtonDown(0))
         {
             _dragStartPos = _cameraController.GetMouseWorldPosition();
@@ -574,7 +616,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         }
         else if (Input.GetMouseButtonUp(0) && _isDragging)
         {
-            FinishHarvestSelection(); // 수확은 아직 즉시 생성 방식 (필요시 변경 가능)
+            FinishHarvestSelection();
             CancelDrag();
         }
         
@@ -584,7 +626,10 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     private void UpdateHarvestSelection()
     {
         Bounds selectionBounds = GetSelectionBounds();
-        foreach (var obj in _selectedObjects) if (obj != null) SetObjectHighlight(obj, false);
+        foreach (var obj in _selectedObjects) 
+        {
+            if (obj != null) SetObjectHighlight(obj, false);
+        }
         _selectedObjects.Clear();
         
         Collider2D[] colliders = Physics2D.OverlapBoxAll(selectionBounds.center, selectionBounds.size, 0f);
@@ -607,13 +652,22 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     private void FinishHarvestSelection()
     {
         if (_selectedObjects.Count == 0) return;
-        // ... (기존 수확 작업 생성 로직 유지) ...
+
         WorkType workType = DetermineHarvestWorkType(_selectedObjects[0]);
         
-        List<Vector3Int> objectTiles = _selectedObjects.Select(obj => new Vector3Int(Mathf.FloorToInt(obj.transform.position.x), Mathf.FloorToInt(obj.transform.position.y), 0)).ToList();
+        List<Vector3Int> objectTiles = _selectedObjects
+            .Select(obj => new Vector3Int(
+                Mathf.FloorToInt(obj.transform.position.x), 
+                Mathf.FloorToInt(obj.transform.position.y), 0))
+            .ToList();
         
         WorkOrderVisual visual = _workSystemManager.CreateWorkOrderWithVisual(
-            $"{GetWorkTypeName(workType)} 작업 ({_selectedObjects.Count}개)", workType, defaultHarvestWorkers, objectTiles, 4);
+            $"{GetWorkTypeName(workType)} 작업 ({_selectedObjects.Count}개)", 
+            workType, 
+            defaultHarvestWorkers, 
+            objectTiles, 
+            4
+        );
             
         if (visual != null)
         {
@@ -624,7 +678,12 @@ public class InteractionManager : DestroySingleton<InteractionManager>
                 IHarvestable harvestable = obj.GetComponent<IHarvestable>();
                 if (harvestable != null)
                 {
-                    targets.Add(new HarvestOrder { target = harvestable, position = obj.transform.position, priority = 4 });
+                    targets.Add(new HarvestOrder 
+                    { 
+                        target = harvestable, 
+                        position = obj.transform.position, 
+                        priority = 4 
+                    });
                 }
                 SetObjectHighlight(obj, false);
             }
@@ -641,104 +700,41 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     
     private string GetWorkTypeName(WorkType type)
     {
-        switch (type) { case WorkType.Chopping: return "벌목"; case WorkType.Mining: return "채광"; default: return "작업"; }
+        switch (type) 
+        { 
+            case WorkType.Chopping: return "벌목"; 
+            case WorkType.Mining: return "채광"; 
+            default: return "작업"; 
+        }
     }
     
     private void SetObjectHighlight(GameObject obj, bool highlight)
     {
         SpriteRenderer sr = obj.GetComponent<SpriteRenderer>();
-        if (sr != null) sr.color = highlight ? new Color(1.5f, 1.5f, 1.5f) : Color.white;
+        if (sr != null) 
+        {
+            sr.color = highlight ? new Color(1.5f, 1.5f, 1.5f) : Color.white;
+        }
     }
     
     #endregion
 
     #region 건설 모드
     
-    public void EnterBuildMode(BuildingData buildingData)
-    {
-        if (buildingData == null || placementGhostPrefab == null) return;
-
-        ExitCurrentMode();
-        _currentMode = InteractMode.Build;
-        _buildingToBuild = buildingData;
-        _ghostSprites.Clear();
-        
-        _ghostParent = new GameObject("PlacementGhost");
-        for (int y = 0; y < _buildingToBuild.size.y; y++)
-        {
-            for (int x = 0; x < _buildingToBuild.size.x; x++)
-            {
-                Vector3 localPos = new Vector3(x + 0.5f, y + 0.5f, 0);
-                GameObject ghostTile = Instantiate(placementGhostPrefab, localPos, Quaternion.identity, _ghostParent.transform);
-                ghostTile.transform.localPosition = localPos;
-                _ghostSprites.Add(ghostTile.GetComponent<SpriteRenderer>());
-            }
-        }
-        OnModeChanged?.Invoke(InteractMode.Build);
-    }
-
-    public void ExitBuildMode()
-    {
-        if (_ghostParent != null) Destroy(_ghostParent);
-        _ghostSprites.Clear();
-        _buildingToBuild = null;
-    }
-
     private void HandleBuildMode()
     {
-        Vector3 worldPos = _cameraController.GetMouseWorldPosition();
-        Vector3Int cellPos = groundTilemap.WorldToCell(worldPos);
-        Vector3 targetWorldPos = groundTilemap.CellToWorld(cellPos);
-        _ghostParent.transform.position = targetWorldPos;
-
-        _isPlacementValid = CheckPlacementValidity(cellPos);
-        Color color = _isPlacementValid ? validColor : invalidColor;
-        foreach (var renderer in _ghostSprites) renderer.color = color;
+        // 배치 로직은 ConstructionManager가 처리
+        // InteractionManager는 모드 전환과 UI 관리만 담당
         
-        if (_isPlacementValid && Input.GetMouseButtonDown(0))
+        if (Input.GetKeyDown(KeyCode.Escape) || Input.GetMouseButtonDown(1))
         {
-            PlaceBuilding(cellPos);
-        }
-        else if (Input.GetMouseButtonDown(1))
-        {
-            SetMode(InteractMode.Normal);
-        }
-    }
-
-    private bool CheckPlacementValidity(Vector3Int gridBasePos)
-    {
-        int startX = gridBasePos.x;
-        int startY = gridBasePos.y;
-        for (int y = 0; y < _buildingToBuild.size.y; y++)
-        {
-            for (int x = 0; x < _buildingToBuild.size.x; x++)
+            if (_constructionManager != null && _constructionManager.IsPlacementMode)
             {
-                int checkX = startX + x;
-                int checkY = startY + y;
-                if (!_gameMap.IsSpaceAvailable(checkX, checkY)) return false;
-                if (y == 0 && !_gameMap.IsSolidGround(checkX, checkY - 1)) return false;
+                _constructionManager.ExitPlacementMode();
             }
-        }
-        return true;
-    }
-
-    private void PlaceBuilding(Vector3Int gridBasePos)
-    {
-        if (InventoryManager.instance == null) return;
-        var requiredRes = _buildingToBuild.requiredResources;
-        if (!InventoryManager.instance.HasItems(requiredRes)) return;
-
-        InventoryManager.instance.RemoveItems(requiredRes);
-        Vector3 worldPos = groundTilemap.CellToWorld(gridBasePos);
-        GameObject buildingObj = Instantiate(_buildingToBuild.buildingPrefab, worldPos, Quaternion.identity, _mapRenderer.entityParent);
-        Building buildingScript = buildingObj.GetComponent<Building>();
-        if(buildingScript != null) buildingScript.Initialize(_buildingToBuild);
-
-        for (int y = 0; y < _buildingToBuild.size.y; y++)
-        {
-            for (int x = 0; x < _buildingToBuild.size.x; x++)
+            else
             {
-                _gameMap.MarkTileOccupied(gridBasePos.x + x, gridBasePos.y + y);
+                SetMode(InteractMode.Normal);
             }
         }
     }
@@ -746,10 +742,9 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     #endregion
 
     #region 철거 모드
+    
     private void HandleDemolishMode()
     {
-        // (생략 - 기존 코드와 동일한 드래그 로직 사용)
-        // 필요시 채광과 비슷하게 변경 가능하지만, 현재는 즉시 철거 명령 생성 유지
         if (Input.GetMouseButtonDown(0))
         {
             _dragStartPos = _cameraController.GetMouseWorldPosition();
@@ -771,14 +766,19 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     private void UpdateDemolishSelection()
     {
         Bounds selectionBounds = GetSelectionBounds();
-        foreach (var obj in _selectedObjects) if (obj != null) SetObjectHighlight(obj, false);
+        foreach (var obj in _selectedObjects) 
+        {
+            if (obj != null) SetObjectHighlight(obj, false);
+        }
         _selectedObjects.Clear();
         
         Collider2D[] colliders = Physics2D.OverlapBoxAll(selectionBounds.center, selectionBounds.size, 0f);
         foreach (var collider in colliders)
         {
             Building building = collider.GetComponent<Building>();
-            if (building != null)
+            ConstructionSite constructionSite = collider.GetComponent<ConstructionSite>();
+            
+            if (building != null || constructionSite != null)
             {
                 _selectedObjects.Add(collider.gameObject);
                 SetObjectHighlight(collider.gameObject, true);
@@ -793,26 +793,55 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         
         foreach (var obj in _selectedObjects)
         {
+            // 건설 현장이면 즉시 취소 (자원 환불)
+            ConstructionSite constructionSite = obj.GetComponent<ConstructionSite>();
+            if (constructionSite != null)
+            {
+                if (_constructionManager != null)
+                {
+                    _constructionManager.CancelConstruction(constructionSite);
+                }
+                SetObjectHighlight(obj, false);
+                continue;
+            }
+            
+            // 완성된 건물이면 철거 작업 생성
             Building building = obj.GetComponent<Building>();
             if (building != null)
             {
-                WorkOrder workOrder = _workSystemManager.CreateWorkOrder($"철거: {building.buildingData.buildingName}", WorkType.Demolish, defaultDemolishWorkers, 6);
-                workOrder.AddTarget(new DemolishOrder { building = building, position = obj.transform.position, priority = 6 });
+                WorkOrder workOrder = _workSystemManager.CreateWorkOrder(
+                    $"철거: {building.buildingData.buildingName}", 
+                    WorkType.Demolish, 
+                    defaultDemolishWorkers, 
+                    6
+                );
+                workOrder.AddTarget(new DemolishOrder 
+                { 
+                    building = building, 
+                    position = obj.transform.position, 
+                    priority = 6 
+                });
             }
             SetObjectHighlight(obj, false);
         }
         _selectedObjects.Clear();
     }
+    
     #endregion
 
     #region 공통 유틸
+    
     private void UpdateSelectionBox()
     {
         if (_selectionBox == null) return;
         _selectionBox.SetActive(true);
         Vector3 currentMousePos = _cameraController.GetMouseWorldPosition();
         Vector3 center = (_dragStartPos + currentMousePos) / 2f;
-        Vector3 size = new Vector3(Mathf.Abs(currentMousePos.x - _dragStartPos.x), Mathf.Abs(currentMousePos.y - _dragStartPos.y), 1f);
+        Vector3 size = new Vector3(
+            Mathf.Abs(currentMousePos.x - _dragStartPos.x), 
+            Mathf.Abs(currentMousePos.y - _dragStartPos.y), 
+            1f
+        );
         _selectionBox.transform.position = center;
         _selectionBox.transform.localScale = size;
     }
@@ -820,7 +849,11 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     private Bounds GetSelectionBounds()
     {
         Vector3 center = (_dragStartPos + _dragEndPos) / 2f;
-        Vector3 size = new Vector3(Mathf.Abs(_dragEndPos.x - _dragStartPos.x), Mathf.Abs(_dragEndPos.y - _dragStartPos.y), 1f);
+        Vector3 size = new Vector3(
+            Mathf.Abs(_dragEndPos.x - _dragStartPos.x), 
+            Mathf.Abs(_dragEndPos.y - _dragStartPos.y), 
+            1f
+        );
         return new Bounds(center, size);
     }
     
@@ -828,13 +861,15 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     {
         _isDragging = false;
         if (_selectionBox != null) _selectionBox.SetActive(false);
-        foreach (var obj in _selectedObjects) if (obj != null) SetObjectHighlight(obj, false);
+        foreach (var obj in _selectedObjects) 
+        {
+            if (obj != null) SetObjectHighlight(obj, false);
+        }
         _selectedObjects.Clear();
     }
     
     private void ExecuteAllOrdersInstantly()
     {
-        // 치트 기능 (기존 유지)
         if (_workSystemManager == null) return;
         var allOrders = _workSystemManager.AllOrders.ToList();
         foreach (var workOrder in allOrders)
@@ -846,18 +881,22 @@ public class InteractionManager : DestroySingleton<InteractionManager>
                     int x = miningOrder.position.x;
                     int y = miningOrder.position.y;
                     GameObject dropPrefab = _resourceManager.GetDropPrefab(miningOrder.tileID);
-                    if (dropPrefab != null) Instantiate(dropPrefab, groundTilemap.CellToWorld(miningOrder.position) + new Vector3(0.5f, 0.5f, 0), Quaternion.identity, itemDropParent);
+                    if (dropPrefab != null)
+                    {
+                        Instantiate(dropPrefab, 
+                            groundTilemap.CellToWorld(miningOrder.position) + new Vector3(0.5f, 0.5f, 0), 
+                            Quaternion.identity, 
+                            itemDropParent);
+                    }
                     _gameMap.SetTile(x, y, 0);
                     _gameMap.UnmarkTileOccupied(x, y);
                     _mapRenderer.UpdateTileVisual(x, y);
                 }
-                // 다른 작업 타입 즉시 완료 처리...
                 workOrder.CompleteTarget(target, null);
             }
             _workSystemManager.RemoveWorkOrder(workOrder);
         }
     }
-    #endregion
     
-    public InteractMode GetCurrentMode() => _currentMode;
+    #endregion
 }
