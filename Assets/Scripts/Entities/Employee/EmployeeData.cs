@@ -44,6 +44,9 @@ public class WorkAbilities
     public bool canResearch = false;  // 연구
     public bool canCraft = false;     // 제작
     public bool canGarden = false;    // 원예
+    public bool canBuild = false;
+    public bool canHaul = false;
+    public bool canDemolish = false;
     
     [Header("능력치 보정 (1.0 = 100% 속도)")]
     [Range(0.5f, 2f)]
@@ -56,6 +59,12 @@ public class WorkAbilities
     public float craftingSpeed = 1f;
     [Range(0.5f, 2f)]
     public float gardeningSpeed = 1f;
+    [Range(0.5f, 2f)]
+    public float buildingSpeed = 1f;
+    [Range(0.5f, 2f)]
+    public float haulingSpeed = 1f;
+    [Range(0.5f, 2f)]
+    public float demolishSpeed = 1f;
     
     public bool CanPerformWork(WorkType type)
     {
@@ -66,6 +75,11 @@ public class WorkAbilities
             case WorkType.Research: return canResearch;
             case WorkType.Crafting: return canCraft;
             case WorkType.Gardening: return canGarden;
+            case WorkType.Building: return canBuild;
+            case WorkType.Hauling: return canHaul;
+            case WorkType.Demolish: return canDemolish;
+            case WorkType.Resting: return true;
+            case WorkType.Eating: return true;
             default: return false;
         }
     }
@@ -79,6 +93,11 @@ public class WorkAbilities
             case WorkType.Research: return canResearch ? researchSpeed : 0f;
             case WorkType.Crafting: return canCraft ? craftingSpeed : 0f;
             case WorkType.Gardening: return canGarden ? gardeningSpeed : 0f;
+            case WorkType.Building: return canBuild ? buildingSpeed : 0f;
+            case WorkType.Hauling: return canHaul ? haulingSpeed : 0f;
+            case WorkType.Demolish: return canDemolish ? demolishSpeed : 0f;
+            case WorkType.Resting: return 1f;
+            case WorkType.Eating: return 1f;
             default: return 0f;
         }
     }

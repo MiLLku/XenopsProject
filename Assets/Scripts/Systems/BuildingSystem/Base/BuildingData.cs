@@ -43,6 +43,10 @@ public class BuildingData : ScriptableObject
     [Header("게임플레이 스탯")]
     [Tooltip("건물의 최대 체력")]
     public int maxHealth = 100;
+    
+    [Header("이동 설정")]
+    [Tooltip("직원의 이동을 막는지 여부")]
+    public bool blocksMovement = true;
         
     // (나중에 여기에 '전력 소모량', '작업 포인트' 등을 추가로 추천할 수 있습니다.)
 }

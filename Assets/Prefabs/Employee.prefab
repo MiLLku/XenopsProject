@@ -208,6 +208,9 @@ MonoBehaviour:
   - workType: 6
     priority: 6
     enabled: 0
+  - workType: 7
+    priority: 7
+    enabled: 0
   showDebugInfo: 1
 --- !u!114 &8852659659930847014
 MonoBehaviour:

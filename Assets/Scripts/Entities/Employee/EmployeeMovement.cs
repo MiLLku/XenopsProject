@@ -221,6 +221,12 @@ public class EmployeeMovement : MonoBehaviour
         {
             return true;
         }
+        
+        // ★ 건설된 바닥 타일도 바닥으로 인식 (OccupiedGrid=true, BlocksMovement=false)
+        if (gameMap.IsTileOccupied(tilePos.x, tilePos.y) && !gameMap.DoesTileBlockMovement(tilePos.x, tilePos.y))
+        {
+            return true;
+        }
 
         return false;
     }

@@ -24,11 +24,17 @@ MonoBehaviour:
     canResearch: 1
     canCraft: 1
     canGarden: 1
+    canBuild: 1
+    canHaul: 1
+    canDemolish: 1
     miningSpeed: 1
     choppingSpeed: 1
     researchSpeed: 1
     craftingSpeed: 1
     gardeningSpeed: 1
+    buildingSpeed: 1
+    haulingSpeed: 1
+    demolishSpeed: 1
   traits: []
   hungerDecayRate: 1
   fatigueIncreaseRate: 0.5

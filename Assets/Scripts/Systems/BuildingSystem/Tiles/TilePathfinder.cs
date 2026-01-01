@@ -36,6 +36,25 @@ public class TilePathfinder
     /// </summary>
     public List<Vector2Int> FindPath(Vector2Int start, Vector2Int goal)
     {
+        // ★ 디버그 추가
+        Debug.Log($"[Pathfinder] === 경로 탐색 시작: {start} -> {goal} ===");
+    
+        // 경로 상의 모든 X 좌표 체크
+        int minX = Mathf.Min(start.x, goal.x);
+        int maxX = Mathf.Max(start.x, goal.x);
+        int y = start.y;
+    
+        for (int x = minX; x <= maxX; x++)
+        {
+            int groundY = y - 1;
+            bool isOccupied = gameMap.IsTileOccupied(x, groundY);
+            bool blocksMovement = gameMap.DoesTileBlockMovement(x, groundY);
+            int tileId = gameMap.TileGrid[x, groundY];
+            bool canStand = CanStandAt(x, y);
+        
+            Debug.Log($"[Pathfinder] 위치({x},{y}): 바닥({x},{groundY}) tileId={tileId}, occupied={isOccupied}, blocks={blocksMovement}, canStand={canStand}");
+        }
+        
         // 목표가 유효한지 확인
         if (!IsValidPosition(goal))
         {
@@ -383,16 +402,22 @@ public class TilePathfinder
         
         int tileId = gameMap.TileGrid[x, y];
         
-        // 공기 타일은 통과 가능
+        // 1. 공기 타일인 경우
         if (tileId == 0)
+        {
+            // 건물이 이동을 차단하는지 확인 (blocksMovement=true인 건물)
+            if (gameMap.DoesTileBlockMovement(x, y))
+                return false;
+            
             return true;
+        }
         
-        // 바닥 타일(사다리 등)이 통과 가능한 경우
+        // 2. 바닥 타일(사다리 등)이 통과 가능한 경우
         FloorTile floorTile = FloorTile.GetFloorTileAt(new Vector2Int(x, y));
         if (floorTile != null && floorTile.IsPassable())
             return true;
         
-        // 고체 타일은 통과 불가
+        // 3. 고체 타일은 통과 불가
         return false;
     }
     
@@ -413,7 +438,11 @@ public class TilePathfinder
         
         int groundTileId = gameMap.TileGrid[x, groundY];
         bool hasFloorTile = FloorTile.HasFloorTileAt(new Vector2Int(x, groundY));
-        bool hasGround = groundTileId != 0 || hasFloorTile;
+        
+        // ★ 건설된 바닥 타일도 바닥으로 인식 (OccupiedGrid=true, BlocksMovement=false)
+        bool hasConstructedFloor = gameMap.IsTileOccupied(x, groundY) && !gameMap.DoesTileBlockMovement(x, groundY);
+        
+        bool hasGround = groundTileId != 0 || hasFloorTile || hasConstructedFloor;
         
         // 사다리 위에 서 있는 경우도 허용
         if (!hasGround)

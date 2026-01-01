@@ -117,7 +117,8 @@ public class ConstructionSite : MonoBehaviour
             {
                 int tileX = gridPosition.x + x;
                 int tileY = gridPosition.y + y;
-                gameMap.MarkTileOccupied(tileX, tileY);
+                // ★ buildingData.blocksMovement 전달
+                gameMap.MarkTileOccupied(tileX, tileY, buildingData.blocksMovement);
             }
         }
     }
@@ -176,8 +177,9 @@ public class ConstructionSite : MonoBehaviour
     /// </summary>
     public Vector3 GetWorkPosition()
     {
-        // 건물 왼쪽 아래 앞에서 작업
-        return new Vector3(gridPosition.x + 0.5f, gridPosition.y, 0);
+        // 건물 왼쪽 아래 기준, 약간 앞에서 작업
+        // 피벗이 Bottom-Left이므로 x + 0.5 정도가 건물 중앙
+        return new Vector3(gridPosition.x, gridPosition.y, 0);
     }
     
     /// <summary>

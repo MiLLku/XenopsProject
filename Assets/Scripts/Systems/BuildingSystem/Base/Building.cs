@@ -80,6 +80,8 @@ public class Building : MonoBehaviour
         _currentHealth = data.maxHealth;
         _isFunctional = true;
         this.name = $"{data.buildingName} ({this.gameObject.GetInstanceID()})";
+        
+        RegisterToGameMap();
     }
 
     public void OnFoundationDestroyed()
@@ -217,4 +219,48 @@ public class Building : MonoBehaviour
     public bool IsFunctional => _isFunctional;
     public int CurrentHealth => _currentHealth;
     public float HealthPercentage => (float)_currentHealth / buildingData.maxHealth;
+    
+    
+    private void RegisterToGameMap()
+    {
+        if (buildingData == null || MapGenerator.instance == null) return;
+    
+        GameMap gameMap = MapGenerator.instance.GameMapInstance;
+        Vector2Int basePos = new Vector2Int(
+            Mathf.FloorToInt(transform.position.x),
+            Mathf.FloorToInt(transform.position.y)
+        );
+    
+        for (int x = 0; x < buildingData.size.x; x++)
+        {
+            for (int y = 0; y < buildingData.size.y; y++)
+            {
+                gameMap.MarkTileOccupied(basePos.x + x, basePos.y + y, buildingData.blocksMovement);
+            }
+        }
+    }
+
+    private void UnregisterFromGameMap()
+    {
+        if (buildingData == null || MapGenerator.instance == null) return;
+    
+        GameMap gameMap = MapGenerator.instance.GameMapInstance;
+        Vector2Int basePos = new Vector2Int(
+            Mathf.FloorToInt(transform.position.x),
+            Mathf.FloorToInt(transform.position.y)
+        );
+    
+        for (int x = 0; x < buildingData.size.x; x++)
+        {
+            for (int y = 0; y < buildingData.size.y; y++)
+            {
+                gameMap.UnmarkTileOccupied(basePos.x + x, basePos.y + y);
+            }
+        }
+    }
+
+    void OnDestroy()
+    {
+        UnregisterFromGameMap();
+    }
 }

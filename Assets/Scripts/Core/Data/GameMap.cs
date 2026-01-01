@@ -22,9 +22,8 @@ public class GameMap
     public int[,] WallGrid { get; private set; }
     public List<MapEntity> Entities { get; private set; }
     
-    // ★★★ [새로 추가된 부분] ★★★
-    // 타일이 점유되었는지(나무, 건물 등이 있는지) 확인하는 논리 그리드
     public bool[,] OccupiedGrid { get; private set; } 
+    public bool[,] BlocksMovementGrid { get; private set; }
     
     public GameMap()
     {
@@ -32,6 +31,7 @@ public class GameMap
         WallGrid = new int[MAP_WIDTH, MAP_HEIGHT];
         Entities = new List<MapEntity>();
         OccupiedGrid = new bool[MAP_WIDTH, MAP_HEIGHT]; // ★ false로 자동 초기화
+        BlocksMovementGrid = new bool[MAP_WIDTH, MAP_HEIGHT];
     }
 
     private bool IsInBounds(int x, int y)
@@ -77,15 +77,25 @@ public class GameMap
         if (IsInBounds(x, y)) OccupiedGrid[x, y] = false;
     }
     
-    public void MarkTileOccupied(int x, int y)
+    public void MarkTileOccupied(int x, int y, bool blocksMovement = true)
     {
-        if (IsInBounds(x, y)) OccupiedGrid[x, y] = true;
+        if (IsInBounds(x, y))
+        {
+            OccupiedGrid[x, y] = true;
+            BlocksMovementGrid[x, y] = blocksMovement;
+        }
     }
     
     public bool IsTileOccupied(int x, int y)
     {
         if (!IsInBounds(x, y)) return true; 
         return OccupiedGrid[x, y];
+    }
+    
+    public bool DoesTileBlockMovement(int x, int y)
+    {
+        if (!IsInBounds(x, y)) return true;
+        return BlocksMovementGrid[x, y];
     }
     
     public bool IsTileSpawnable(int x, int y)
