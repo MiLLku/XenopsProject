@@ -55,7 +55,65 @@ public class UIManager : DestroySingleton<UIManager>
             var component = panelObj.GetComponent<T>();
             return component;
         }
-        
+
         return null;
+    }
+
+    /// <summary>
+    /// 특정 패널을 엽니다 (SetActive(true))
+    /// </summary>
+    public void ShowPanel(UIPanelType type)
+    {
+        if (_uiDictionary.TryGetValue(type, out GameObject panelObj))
+        {
+            panelObj.SetActive(true);
+        }
+        else
+        {
+            Debug.LogWarning($"[UIManager] 패널을 찾을 수 없습니다: {type}");
+        }
+    }
+
+    /// <summary>
+    /// 특정 패널을 닫습니다 (SetActive(false))
+    /// </summary>
+    public void HidePanel(UIPanelType type)
+    {
+        if (_uiDictionary.TryGetValue(type, out GameObject panelObj))
+        {
+            panelObj.SetActive(false);
+        }
+        else
+        {
+            Debug.LogWarning($"[UIManager] 패널을 찾을 수 없습니다: {type}");
+        }
+    }
+
+    /// <summary>
+    /// 특정 패널의 표시 상태를 토글합니다
+    /// </summary>
+    public void TogglePanel(UIPanelType type)
+    {
+        if (_uiDictionary.TryGetValue(type, out GameObject panelObj))
+        {
+            panelObj.SetActive(!panelObj.activeSelf);
+        }
+        else
+        {
+            Debug.LogWarning($"[UIManager] 패널을 찾을 수 없습니다: {type}");
+        }
+    }
+
+    /// <summary>
+    /// 특정 패널이 현재 표시 중인지 확인합니다
+    /// </summary>
+    public bool IsPanelActive(UIPanelType type)
+    {
+        if (_uiDictionary.TryGetValue(type, out GameObject panelObj))
+        {
+            return panelObj.activeSelf;
+        }
+
+        return false;
     }
 }

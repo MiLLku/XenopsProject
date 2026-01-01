@@ -362,7 +362,7 @@ public class ConstructionManager : DestroySingleton<ConstructionManager>
                     Mathf.FloorToInt(mouseWorld.y),
                     0
                 );
-                
+
                 PlaceConstruction(gridPos);
             }
             else
@@ -370,18 +370,15 @@ public class ConstructionManager : DestroySingleton<ConstructionManager>
                 Debug.LogWarning("[ConstructionManager] 이 위치에 건설할 수 없습니다.");
             }
         }
-        
+
         // 우클릭: 취소
         if (Input.GetMouseButtonDown(1))
         {
             ExitPlacementMode();
         }
-        
-        // ESC: 취소
-        if (Input.GetKeyDown(KeyCode.Escape))
-        {
-            ExitPlacementMode();
-        }
+
+        // ESC와 B키는 InteractionManager에서 처리
+        // (InteractionManager가 모드를 Normal로 변경하면 ExitCurrentMode()에서 ExitPlacementMode() 호출됨)
     }
     
     #endregion
@@ -488,20 +485,20 @@ public class ConstructionManager : DestroySingleton<ConstructionManager>
         
         // 건설 현장 생성
         ConstructionSite site = CreateConstructionSite(selectedBuildingData, gridPos);
-        
+
         if (site != null)
         {
             activeConstructionSites.Add(site);
             OnConstructionSiteCreated?.Invoke(site);
-            
+
             if (showDebugInfo)
             {
                 Debug.Log($"[ConstructionManager] 건설 현장 배치: {selectedBuildingData.buildingName} at {gridPos}");
             }
         }
-        
-        // 배치 모드 종료 (또는 연속 배치를 원하면 유지)
-        ExitPlacementMode();
+
+        // 배치 모드는 유지 (연속 배치 지원)
+        // 플레이어가 ESC, 우클릭, B키로 직접 종료할 때까지 계속 건설 가능
     }
     
     private bool ConsumeResources(BuildingData buildingData)

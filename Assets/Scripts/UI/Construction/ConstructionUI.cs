@@ -493,13 +493,18 @@ public class ConstructionUI : MonoBehaviour
     private void OnBuildButtonClicked()
     {
         if (selectedBuildingData == null) return;
-        
+
         bool success = constructionManager.EnterPlacementMode(selectedBuildingData);
-        
+
         if (success)
         {
-            // 배치 모드 진입 성공 - UI는 열어둠 (배치 중에도 볼 수 있도록)
-            Debug.Log($"[ConstructionUI] 배치 모드 진입: {selectedBuildingData.buildingName}");
+            // 배치 모드 진입 성공 - UIManager를 통해 UI 숨기기
+            if (UIManager.instance != null)
+            {
+                UIManager.instance.HidePanel(UIPanelType.ConstructionUI);
+            }
+
+            Debug.Log($"[ConstructionUI] 배치 모드 진입 - UI 숨김: {selectedBuildingData.buildingName}");
         }
         else
         {
@@ -513,10 +518,22 @@ public class ConstructionUI : MonoBehaviour
     
     private void OnPlacementModeChanged(bool isActive, BuildingData buildingData)
     {
-        // 배치 모드 상태에 따른 UI 업데이트 (필요시)
+        // 배치 모드 종료 시 - UI는 다시 표시하지 않음
+        // (플레이어가 B키나 ESC로 건설 모드를 종료하면 일반 모드로 전환됨)
         if (!isActive)
         {
-            // 배치 모드 종료 시 선택 상태 유지 (다시 건설 가능하도록)
+            Debug.Log("[ConstructionUI] 배치 모드 종료");
+
+            // 자원이 변경되었을 수 있으므로 UI 갱신 (UI가 열려있을 때만)
+            if (isOpen && selectedBuildingData != null)
+            {
+                UpdateBuildButton();
+
+                if (resourceCostText != null)
+                {
+                    resourceCostText.text = GetResourceCostString(selectedBuildingData);
+                }
+            }
         }
     }
     

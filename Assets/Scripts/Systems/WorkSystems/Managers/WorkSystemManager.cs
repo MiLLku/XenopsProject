@@ -20,32 +20,27 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>
     [SerializeField] private GameObject workOrderVisualPrefab;
     [SerializeField] private Transform visualParent;
     
-    [Header("UI 설정")]
-    [SerializeField] private GameObject assignmentPanelPrefab;
-    [SerializeField] private Transform canvasTransform;
-    
     [Header("직원 관리")]
     [SerializeField] private List<Employee> allEmployees = new List<Employee>();
-    
+
     [Header("디버그")]
     [SerializeField] private bool showDebugInfo = true;
-    
+
     #endregion
-    
+
     #region 내부 변수
-    
+
     // 작업물 ID -> 비주얼 매핑
     private Dictionary<int, WorkOrderVisual> orderVisuals = new Dictionary<int, WorkOrderVisual>();
-    
+
     // 직원별 현재 작업물 매핑
     private Dictionary<Employee, WorkOrder> employeeToOrderMap = new Dictionary<Employee, WorkOrder>();
-    
+
     // 직원별 현재 작업 Task 매핑
     private Dictionary<Employee, WorkTask> employeeToTaskMap = new Dictionary<Employee, WorkTask>();
-    
+
     // UI 관련
-    private GameObject currentPanelObject;
-    private WorkAssignmentPanel currentPanelScript;
+    private WorkAssignmentPanel workAssignmentPanel;
     private WorkOrder currentUIOrder;
     private WorkOrderVisual currentUIVisual;
     
@@ -610,35 +605,42 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>
     
     /// <summary>
     /// 작업 할당 UI를 표시합니다. (WorkOrderVisual에서 호출)
+    /// UIManager를 통해 WorkAssignmentPanel을 표시합니다.
     /// </summary>
     public void ShowAssignmentUI(WorkOrder order, WorkOrderVisual visual, Vector3 screenPos)
     {
         CloseAssignmentUI();
-        
+
         currentUIOrder = order;
         currentUIVisual = visual;
-        
-        CreateAssignmentPanel(screenPos);
-    }
-    
-    private void CreateAssignmentPanel(Vector3 screenPos)
-    {
-        if (assignmentPanelPrefab == null || canvasTransform == null)
+
+        // UIManager를 통해 패널 가져오기
+        if (UIManager.instance != null)
         {
-            Debug.LogError("[WorkSystemManager] 패널 프리팹 또는 캔버스가 연결되지 않았습니다.");
-            return;
+            workAssignmentPanel = UIManager.instance.GetPanel<WorkAssignmentPanel>(UIPanelType.WorkAssignment);
+
+            if (workAssignmentPanel != null)
+            {
+                // 패널 표시
+                UIManager.instance.ShowPanel(UIPanelType.WorkAssignment);
+
+                // UI 초기화
+                workAssignmentPanel.Setup(currentUIOrder, OnWorkerToggled, CloseAssignmentUI, OnCancelOrder);
+
+                if (showDebugInfo)
+                {
+                    Debug.Log($"[WorkSystemManager] 작업 할당 UI 열기: {order.orderName}");
+                }
+            }
+            else
+            {
+                Debug.LogError("[WorkSystemManager] WorkAssignmentPanel을 찾을 수 없습니다. UIManager에 등록되어 있는지 확인하세요.");
+            }
         }
-        
-        currentPanelObject = Instantiate(assignmentPanelPrefab, canvasTransform);
-        currentPanelScript = currentPanelObject.GetComponent<WorkAssignmentPanel>();
-        
-        // 위치 설정
-        RectTransform rect = currentPanelObject.GetComponent<RectTransform>();
-        rect.position = screenPos + new Vector3(rect.rect.width / 2 + 20f, -rect.rect.height / 2, 0);
-        ClampToScreen(rect);
-        
-        // UI 초기화
-        currentPanelScript.Setup(currentUIOrder, OnWorkerToggled, CloseAssignmentUI, OnCancelOrder);
+        else
+        {
+            Debug.LogError("[WorkSystemManager] UIManager 인스턴스를 찾을 수 없습니다.");
+        }
     }
     
     private void OnWorkerToggled(Employee employee)
@@ -668,9 +670,9 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>
         }
         
         // UI 갱신
-        currentPanelScript?.RefreshUI();
+        workAssignmentPanel?.RefreshUI();
     }
-    
+
     private void OnCancelOrder()
     {
         if (currentUIOrder != null)
@@ -680,36 +682,25 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>
             CloseAssignmentUI();
         }
     }
-    
+
     public void CloseAssignmentUI()
     {
-        if (currentPanelObject != null)
+        // UIManager를 통해 패널 닫기
+        if (UIManager.instance != null)
         {
-            Destroy(currentPanelObject);
-            currentPanelObject = null;
+            UIManager.instance.HidePanel(UIPanelType.WorkAssignment);
         }
-        
+
         if (currentUIVisual != null)
         {
             currentUIVisual.Deselect();
             currentUIVisual = null;
         }
-        
+
         currentUIOrder = null;
+        workAssignmentPanel = null;
     }
-    
-    private void ClampToScreen(RectTransform rect)
-    {
-        Vector3 pos = rect.position;
-        float width = rect.rect.width;
-        float height = rect.rect.height;
-        
-        if (pos.x + width / 2 > Screen.width) pos.x = Screen.width - width / 2;
-        if (pos.y - height / 2 < 0) pos.y = height / 2;
-        
-        rect.position = pos;
-    }
-    
+
     #endregion
     
     #region 유틸리티

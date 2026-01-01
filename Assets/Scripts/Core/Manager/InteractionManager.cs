@@ -39,9 +39,6 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     [SerializeField] private Color harvestSelectionColor = new Color(0, 1, 0, 0.3f);
     [SerializeField] private Color demolishSelectionColor = new Color(1, 0, 0, 0.3f);
     
-    [Header("건설 설정")]
-    [SerializeField] private ConstructionUI constructionUI;
-    
     [Header("작업 설정")]
     [SerializeField] private int defaultMiningWorkers = 3;
     [SerializeField] private int defaultHarvestWorkers = 2;
@@ -240,12 +237,21 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         }
         else if (mode == InteractMode.Build)
         {
-            if (constructionUI != null)
+            // UIManager를 통해 건설 UI 열기
+            if (UIManager.instance != null)
             {
-                constructionUI.Open();
+                ConstructionUI constructionUI = UIManager.instance.GetPanel<ConstructionUI>(UIPanelType.ConstructionUI);
+                if (constructionUI != null)
+                {
+                    constructionUI.Open();
+                }
+                else
+                {
+                    Debug.LogWarning("[InteractionManager] ConstructionUI를 찾을 수 없습니다.");
+                }
             }
         }
-    
+
         Debug.Log($"[Interaction] 모드 변경: {mode}");
         OnModeChanged?.Invoke(mode);
     
@@ -262,14 +268,20 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         }
         else if (_currentMode == InteractMode.Build)
         {
-            if (constructionUI != null)
-            {
-                constructionUI.Close();
-            }
-            
+            // 배치 모드가 활성화되어 있으면 종료
             if (_constructionManager != null && _constructionManager.IsPlacementMode)
             {
                 _constructionManager.ExitPlacementMode();
+            }
+
+            // UIManager를 통해 건설 UI 닫기
+            if (UIManager.instance != null)
+            {
+                ConstructionUI constructionUI = UIManager.instance.GetPanel<ConstructionUI>(UIPanelType.ConstructionUI);
+                if (constructionUI != null)
+                {
+                    constructionUI.Close();
+                }
             }
         }
     }

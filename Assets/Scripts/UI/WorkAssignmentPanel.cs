@@ -4,6 +4,10 @@ using TMPro;
 using System;
 using System.Collections.Generic;
 
+/// <summary>
+/// 작업 할당 패널 - UIManager를 통해 관리됨
+/// WorkSystemManager가 Setup()을 호출하여 초기화
+/// </summary>
 public class WorkAssignmentPanel : MonoBehaviour
 {
     [Header("UI 요소 연결")]
@@ -28,45 +32,54 @@ public class WorkAssignmentPanel : MonoBehaviour
     private Action<Employee> onEmployeeClickCallback;
     private Action onCloseCallback;
     private Action onCancelWorkCallback;
-    
+
     private WorkOrder currentOrder;
     private int currentPage = 0;
 
+    void Awake()
+    {
+        // 버튼 기본 리스너 연결 (Setup 이전에도 동작하도록)
+        if (closeButton != null)
+        {
+            closeButton.onClick.AddListener(OnCloseClicked);
+        }
+
+        if (prevButton != null)
+        {
+            prevButton.onClick.AddListener(OnPrevPage);
+        }
+
+        if (nextButton != null)
+        {
+            nextButton.onClick.AddListener(OnNextPage);
+        }
+    }
+
+    /// <summary>
+    /// WorkSystemManager에서 호출하여 패널을 초기화합니다
+    /// </summary>
     public void Setup(WorkOrder order, Action<Employee> onEmployeeClick, Action onClose, Action onCancelWork)
     {
         currentOrder = order;
         onEmployeeClickCallback = onEmployeeClick;
         onCloseCallback = onClose;
         onCancelWorkCallback = onCancelWork;
-        
+
         currentPage = 0; // 항상 첫 페이지부터 시작
 
-        // 버튼 리스너 초기화 및 연결
-        if (closeButton != null)
-        {
-            closeButton.onClick.RemoveAllListeners();
-            closeButton.onClick.AddListener(() => onCloseCallback?.Invoke());
-        }
-        
+        // 취소 버튼 리스너 연결
         if (cancelButton != null)
         {
             cancelButton.onClick.RemoveAllListeners();
             cancelButton.onClick.AddListener(() => onCancelWorkCallback?.Invoke());
         }
 
-        if (prevButton != null)
-        {
-            prevButton.onClick.RemoveAllListeners();
-            prevButton.onClick.AddListener(OnPrevPage);
-        }
-
-        if (nextButton != null)
-        {
-            nextButton.onClick.RemoveAllListeners();
-            nextButton.onClick.AddListener(OnNextPage);
-        }
-
         RefreshUI();
+    }
+
+    private void OnCloseClicked()
+    {
+        onCloseCallback?.Invoke();
     }
 
     public void RefreshUI()
