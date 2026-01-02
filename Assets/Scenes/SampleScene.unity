@@ -3463,8 +3463,14 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   uiList:
-  - type: 0
-    panelObject: {fileID: 0}
+  - type: 2
+    panelObject: {fileID: 436134718}
+  - type: 1
+    panelObject: {fileID: 1362705709}
+  - type: 2
+    panelObject: {fileID: 436134718}
+  - type: 2
+    panelObject: {fileID: 436134718}
 --- !u!1 &1200458244
 GameObject:
   m_ObjectHideFlags: 0

@@ -607,7 +607,7 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>
     /// 작업 할당 UI를 표시합니다. (WorkOrderVisual에서 호출)
     /// UIManager를 통해 WorkAssignmentPanel을 표시합니다.
     /// </summary>
-    public void ShowAssignmentUI(WorkOrder order, WorkOrderVisual visual, Vector3 screenPos)
+    public void ShowAssignmentUI(WorkOrder order, WorkOrderVisual visual)
     {
         CloseAssignmentUI();
 
@@ -621,11 +621,11 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>
 
             if (workAssignmentPanel != null)
             {
+                // UI 초기화 (내용 갱신)
+                workAssignmentPanel.Setup(currentUIOrder, OnWorkerToggled, CloseAssignmentUI, OnCancelOrder);
+
                 // 패널 표시
                 UIManager.instance.ShowPanel(UIPanelType.WorkAssignment);
-
-                // UI 초기화
-                workAssignmentPanel.Setup(currentUIOrder, OnWorkerToggled, CloseAssignmentUI, OnCancelOrder);
 
                 if (showDebugInfo)
                 {

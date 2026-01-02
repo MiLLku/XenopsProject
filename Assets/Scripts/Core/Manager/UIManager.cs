@@ -1,19 +1,20 @@
 using System.Collections.Generic;
 using UnityEngine;
-    
-    
+
+
 [System.Serializable]
 public class UIPanelData
 {
     public UIPanelType type;
     public GameObject panelObject;
+    public bool alwaysActive; // 항상 활성화 상태 유지 (예: InteractionModePanel)
 }
 
 public class UIManager : DestroySingleton<UIManager>
 {
     // 인스펙터에서 할당하기 위한 리스트
-    [SerializeField] private List<UIPanelData> uiList; 
-    
+    [SerializeField] private List<UIPanelData> uiList;
+
     // 실제 런타임에서 빠른 접근을 위해 사용할 딕셔너리
     private Dictionary<UIPanelType, GameObject> _uiDictionary;
 
@@ -36,7 +37,12 @@ public class UIManager : DestroySingleton<UIManager>
             if (!_uiDictionary.ContainsKey(data.type))
             {
                 _uiDictionary.Add(data.type, data.panelObject);
-                data.panelObject.SetActive(false); 
+
+                // alwaysActive가 true가 아닌 패널만 비활성화
+                if (!data.alwaysActive)
+                {
+                    data.panelObject.SetActive(false);
+                }
             }
         }
     }

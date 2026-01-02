@@ -277,18 +277,12 @@ public class WorkOrderVisual : MonoBehaviour
     {
         if (isPendingMode) return;
 
-        // WorkSystemManager 또는 기존 WorkAssignmentManager 사용
+        // WorkSystemManager를 통해 UI 표시
         if (WorkSystemManager.instance != null)
         {
             isSelected = true;
             UpdateColor();
-            WorkSystemManager.instance.ShowAssignmentUI(workOrder, this, Input.mousePosition);
-        }
-        else if (WorkSystemManager.instance != null)
-        {
-            isSelected = true;
-            UpdateColor();
-            WorkSystemManager.instance.ShowAssignmentUI(workOrder, this, Input.mousePosition);
+            WorkSystemManager.instance.ShowAssignmentUI(workOrder, this);
         }
     }
     

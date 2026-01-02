@@ -56,6 +56,14 @@ public class WorkAssignmentPanel : MonoBehaviour
     }
 
     /// <summary>
+    /// 패널이 비활성화될 때 기존 목록을 정리합니다
+    /// </summary>
+    void OnDisable()
+    {
+        ClearEmployeeList();
+    }
+
+    /// <summary>
     /// WorkSystemManager에서 호출하여 패널을 초기화합니다
     /// </summary>
     public void Setup(WorkOrder order, Action<Employee> onEmployeeClick, Action onClose, Action onCancelWork)
@@ -75,6 +83,19 @@ public class WorkAssignmentPanel : MonoBehaviour
         }
 
         RefreshUI();
+    }
+
+    /// <summary>
+    /// 기존 직원 목록을 정리합니다
+    /// </summary>
+    private void ClearEmployeeList()
+    {
+        if (listContainer == null) return;
+
+        foreach (Transform child in listContainer)
+        {
+            Destroy(child.gameObject);
+        }
     }
 
     private void OnCloseClicked()
@@ -102,10 +123,7 @@ public class WorkAssignmentPanel : MonoBehaviour
     private void UpdateEmployeeList()
     {
         // 1. 기존 목록 삭제
-        foreach (Transform child in listContainer)
-        {
-            Destroy(child.gameObject);
-        }
+        ClearEmployeeList();
 
         // 2. 데이터 준비
         List<Employee> allEmployees = EmployeeManager.instance.AllEmployees;
