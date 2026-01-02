@@ -707,8 +707,8 @@ public class Employee : MonoBehaviour
         }
 
         // 타일 좌표를 월드 좌표로 변환
-        // 피벗 = Bottom-Left이므로, 발 위치 타일 = transform.position
-        return new Vector3(bestPos.x, bestPos.y, 0);
+        // 타일의 정중앙에 서도록 +0.5f 추가
+        return new Vector3(bestPos.x + 0.5f, bestPos.y, 0);
     }
 
     private struct WorkPositionCandidate
