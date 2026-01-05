@@ -437,7 +437,7 @@ MonoBehaviour:
     m_PressedTrigger: Pressed
     m_SelectedTrigger: Selected
     m_DisabledTrigger: Disabled
-  m_Interactable: 1
+  m_Interactable: 0
   m_TargetGraphic: {fileID: 7412224820885712101}
   m_OnClick:
     m_PersistentCalls:
@@ -507,7 +507,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 1/3
+  m_text: 1 / 1
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 815985c865780ec48a06a92c653853c9, type: 2}
   m_sharedMaterial: {fileID: 5193834713976614420, guid: 815985c865780ec48a06a92c653853c9, type: 2}
@@ -643,7 +643,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "\uCC44\uAD11"
+  m_text: "\uCC44\uAD11 \uC791\uC5C5 (2\uAC1C)\n(0/3)"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 815985c865780ec48a06a92c653853c9, type: 2}
   m_sharedMaterial: {fileID: 5193834713976614420, guid: 815985c865780ec48a06a92c653853c9, type: 2}
@@ -1178,7 +1178,7 @@ MonoBehaviour:
     m_PressedTrigger: Pressed
     m_SelectedTrigger: Selected
     m_DisabledTrigger: Disabled
-  m_Interactable: 1
+  m_Interactable: 0
   m_TargetGraphic: {fileID: 7693371561745424514}
   m_OnClick:
     m_PersistentCalls:
