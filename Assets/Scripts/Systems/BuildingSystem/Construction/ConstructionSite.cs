@@ -288,7 +288,7 @@ public class ConstructionSite : MonoBehaviour
         
         if (workOrder != null && WorkSystemManager.instance != null)
         {
-            WorkSystemManager.instance.ShowAssignmentUI(workOrder, null, Input.mousePosition);
+            WorkSystemManager.instance.ShowAssignmentUI(workOrder, null);
         }
     }
     

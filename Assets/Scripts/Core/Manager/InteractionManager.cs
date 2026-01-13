@@ -453,7 +453,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     {
         if (site.WorkOrder != null && _workSystemManager != null)
         {
-            _workSystemManager.ShowAssignmentUI(site.WorkOrder, null, Input.mousePosition);
+            _workSystemManager.ShowAssignmentUI(site.WorkOrder, null);
         }
     }
     

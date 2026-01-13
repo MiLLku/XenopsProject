@@ -92,9 +92,25 @@ public class MapRenderer : MonoBehaviour
     public void UpdateTileVisual(int x, int y)
     {
         if (_gameMap == null || _resourceManager == null) return;
-            
+
         int newTileId = _gameMap.TileGrid[x, y];
         TileBase tileAsset = _resourceManager.GetTileAsset(newTileId);
         tilemap.SetTile(new Vector3Int(x, y, 0), tileAsset);
+    }
+
+    /// <summary>
+    /// 전체 타일맵을 현재 GameMap 데이터로 새로고침합니다.
+    /// 저장 파일 로드 시 사용됩니다.
+    /// </summary>
+    public void RefreshAllTiles()
+    {
+        if (_gameMap == null || _resourceManager == null)
+        {
+            Debug.LogWarning("[MapRenderer] RefreshAllTiles: GameMap 또는 ResourceManager가 없습니다.");
+            return;
+        }
+
+        RenderTiles();
+        Debug.Log("[MapRenderer] 전체 타일 새로고침 완료");
     }
 }

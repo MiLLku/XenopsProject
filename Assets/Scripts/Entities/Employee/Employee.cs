@@ -8,51 +8,76 @@ using System.Linq;
 public class Employee : MonoBehaviour
 {
     [Header("직원 데이터")]
-    [SerializeField] private EmployeeData employeeData;
-    
+    [SerializeField] private EmployeeData employeeData;  // 템플릿 (외형, 기본값)
+
+    [Header("인스턴스 정보")]
+    [SerializeField] private int instanceId;             // 런타임 고유 ID
+    [SerializeField] private bool isUnique = true;       // 유니크 직원 여부
+    [SerializeField] private string customName;          // 커스텀 이름
+
+    [Header("성장 시스템 (유니크 직원 전용)")]
+    [SerializeField] private int level = 1;
+    [SerializeField] private int experience = 0;
+    [SerializeField] private int experienceToNextLevel = 100;
+
     [Header("현재 상태")]
     [SerializeField] private EmployeeStats currentStats;
     [SerializeField] private EmployeeNeeds currentNeeds;
     [SerializeField] private WorkType currentWork = WorkType.None;
     [SerializeField] private EmployeeState currentState = EmployeeState.Idle;
-    
+
+    [Header("작업 능력 (성장으로 변경 가능)")]
+    [SerializeField] private WorkAbilities runtimeAbilities;  // 런타임 능력치
+
     [Header("작업 우선순위")]
     [SerializeField] private List<WorkPriority> workPriorities;
-    
+
     [Header("디버그")]
     [SerializeField] private bool showDebugInfo = true;
-    
+
     // 컴포넌트 참조
     private SpriteRenderer spriteRenderer;
     private EmployeeAI aiController;
     private EmployeeMovement movement;
-    
+
     // 작업 관련
     private IWorkTarget currentWorkTarget;
     private WorkOrder currentWorkOrder;
     private float workProgress = 0f;
     private Coroutine currentWorkCoroutine;
-    
+
     // 특성 효과 캐시
     private float cachedHealthModifier = 1f;
     private float cachedMentalModifier = 1f;
     private float cachedWorkSpeedModifier = 1f;
     private float cachedHungerRateModifier = 1f;
     private float cachedFatigueRateModifier = 1f;
-    
+
     // 직원 높이 상수
     private const int EMPLOYEE_HEIGHT = 2;
     
     // 이벤트
     public delegate void StatsChangedDelegate(EmployeeStats stats);
     public event StatsChangedDelegate OnStatsChanged;
-    
+
     public delegate void NeedsChangedDelegate(EmployeeNeeds needs);
     public event NeedsChangedDelegate OnNeedsChanged;
-    
+
     public delegate void StateChangedDelegate(EmployeeState state);
     public event StateChangedDelegate OnStateChanged;
-    
+
+    public delegate void LevelUpDelegate(int newLevel);
+    public event LevelUpDelegate OnLevelUp;
+
+    // ===== 공개 프로퍼티 =====
+    public int InstanceId => instanceId;
+    public bool IsUnique => isUnique;
+    public int Level => level;
+    public int Experience => experience;
+    public int ExperienceToNextLevel => experienceToNextLevel;
+    public string DisplayName => string.IsNullOrEmpty(customName) ? employeeData?.employeeName : customName;
+    public WorkAbilities Abilities => runtimeAbilities ?? employeeData?.abilities;
+
     void Awake()
     {
         spriteRenderer = GetComponent<SpriteRenderer>();
@@ -98,13 +123,24 @@ public class Employee : MonoBehaviour
         }
     }
     
-    public void Initialize(EmployeeData data)
+    /// <summary>
+    /// 새 직원 초기화 (처음 고용 시)
+    /// </summary>
+    public void Initialize(EmployeeData data, int newInstanceId)
     {
         employeeData = data;
-        name = $"Employee_{data.employeeName}";
-        
+        instanceId = newInstanceId;
+        isUnique = data.isUnique;  // 템플릿에서 유니크 여부 가져옴
+        customName = null;
+        level = 1;
+        experience = 0;
+        experienceToNextLevel = 100;
+
+        name = $"Employee_{data.employeeName}_{instanceId}";
+
         CalculateTraitModifiers();
-        
+
+        // 템플릿에서 초기 스탯 설정
         currentStats = new EmployeeStats
         {
             health = Mathf.RoundToInt(data.maxHealth * cachedHealthModifier),
@@ -113,17 +149,57 @@ public class Employee : MonoBehaviour
             maxMental = Mathf.RoundToInt(data.maxMental * cachedMentalModifier),
             attackPower = Mathf.RoundToInt(data.attackPower * (1f + GetTraitAttackModifier()))
         };
-        
+
         currentNeeds = new EmployeeNeeds
         {
             hunger = 100f,
             fatigue = 100f
         };
-        
+
+        // 템플릿에서 런타임 능력치 복사
+        runtimeAbilities = CopyAbilities(data.abilities);
+
         if (workPriorities == null || workPriorities.Count == 0)
         {
             InitializeWorkPriorities();
         }
+    }
+
+    /// <summary>
+    /// 기존 Initialize 호환 (instanceId 없이 호출 시)
+    /// </summary>
+    public void Initialize(EmployeeData data)
+    {
+        int newId = SaveManager.instance != null ? SaveManager.instance.GenerateInstanceId() : UnityEngine.Random.Range(1000, 9999);
+        Initialize(data, newId);
+    }
+
+    /// <summary>
+    /// WorkAbilities 복사 (런타임 수정용)
+    /// </summary>
+    private WorkAbilities CopyAbilities(WorkAbilities source)
+    {
+        if (source == null) return new WorkAbilities();
+
+        return new WorkAbilities
+        {
+            canMine = source.canMine,
+            canChop = source.canChop,
+            canResearch = source.canResearch,
+            canCraft = source.canCraft,
+            canGarden = source.canGarden,
+            canBuild = source.canBuild,
+            canHaul = source.canHaul,
+            canDemolish = source.canDemolish,
+            miningSpeed = source.miningSpeed,
+            choppingSpeed = source.choppingSpeed,
+            researchSpeed = source.researchSpeed,
+            craftingSpeed = source.craftingSpeed,
+            gardeningSpeed = source.gardeningSpeed,
+            buildingSpeed = source.buildingSpeed,
+            haulingSpeed = source.haulingSpeed,
+            demolishSpeed = source.demolishSpeed
+        };
     }
     
     private void InitializeWorkPriorities()
@@ -233,12 +309,14 @@ public class Employee : MonoBehaviour
 
     /// <summary>
     /// 직원의 현재 발 위치 타일 좌표를 반환합니다.
-    /// 피벗이 Bottom Left이지만, 시각적 위치와 맞추기 위해 반올림 사용
+    /// 피벗이 Bottom Center이므로:
+    /// - X: 타일 중앙(+0.5)에 서 있으므로 FloorToInt 사용 (111.5 -> 111)
+    /// - Y: FloorToInt 사용
     /// </summary>
     public Vector3Int GetFootTile()
     {
         return new Vector3Int(
-            Mathf.RoundToInt(transform.position.x),
+            Mathf.FloorToInt(transform.position.x),
             Mathf.FloorToInt(transform.position.y),
             0
         );
@@ -405,22 +483,24 @@ public class Employee : MonoBehaviour
 
     public bool CanPerformWork(WorkType type)
     {
-        if (employeeData == null || employeeData.abilities == null) return false;
+        WorkAbilities abilities = Abilities;
+        if (abilities == null) return false;
 
         var priority = workPriorities.FirstOrDefault(w => w.workType == type);
         if (priority != null && !priority.enabled) return false;
 
-        return employeeData.abilities.CanPerformWork(type);
+        return abilities.CanPerformWork(type);
     }
-    
+
     public float GetWorkSpeed(WorkType type)
     {
         if (!CanPerformWork(type)) return 0f;
-        
-        float baseSpeed = employeeData.abilities.GetWorkSpeed(type);
+
+        WorkAbilities abilities = Abilities;
+        float baseSpeed = abilities.GetWorkSpeed(type);
         float traitModifier = GetTraitWorkSpeedModifier(type);
         float fatigueModifier = GetFatigueModifier();
-        
+
         return baseSpeed * traitModifier * fatigueModifier * cachedWorkSpeedModifier;
     }
     
@@ -620,29 +700,39 @@ public class Employee : MonoBehaviour
 
         // TilePathfinder 가져오기
         TilePathfinder pathfinder = null;
+        GameMap gameMap = null;
         if (MapGenerator.instance != null)
         {
-            GameMap gameMap = MapGenerator.instance.GameMapInstance;
+            gameMap = MapGenerator.instance.GameMapInstance;
             if (gameMap != null)
             {
                 pathfinder = new TilePathfinder(gameMap);
             }
         }
 
-        if (pathfinder == null)
+        if (pathfinder == null || gameMap == null)
         {
-            Debug.LogError("[Employee] Pathfinder를 생성할 수 없습니다!");
+            Debug.LogError("[Employee] Pathfinder 또는 GameMap를 생성할 수 없습니다!");
             return Vector3.zero;
         }
 
         List<WorkPositionCandidate> candidates = new List<WorkPositionCandidate>();
 
-        // 타겟 기준으로 작업 범위를 만족하는 위치 찾기
-        // 직원이 (cx, cy)에 서 있을 때, 타겟 (tx, ty)가 작업 범위 내에 있으려면:
-        // |tx - cx| <= 1, -1 <= ty - cy <= 3
-        for (int dx = -1; dx <= 1; dx++)
+        // ★ 핵심 수정: 안전한 위치(낙하 없음)를 우선으로 검사
+        // 타겟 바로 위(dx=0)에서 작업하면 타일 파괴 후 낙하할 수 있음
+        // 인접 타일 위(dx!=0)에서 작업하면 안전함
+        // 검사 순서: dy = 1, 2, 3 (위쪽) -> dy = 0 (같은 높이) -> dy = -1, -2, -3 (아래쪽)
+        int[] dyOrder = { 1, 2, 3, 0, -1, -2, -3 };
+        int[] dxOrder = { 1, -1, 0 }; // ★ 변경: 오른쪽 -> 왼쪽 -> 같은 X (타겟 위는 낙하 위험)
+
+        if (showDebugInfo)
         {
-            for (int dy = -3; dy <= 1; dy++)
+            Debug.Log($"[Employee] ★작업위치 탐색 시작★ 타겟={targetTilePos}, 현재위치={startPos}");
+        }
+
+        foreach (int dy in dyOrder)
+        {
+            foreach (int dx in dxOrder)
             {
                 Vector2Int candidatePos = new Vector2Int(
                     targetTilePos.x + dx,
@@ -655,33 +745,98 @@ public class Employee : MonoBehaviour
                     continue;
 
                 // 해당 위치에서 타겟이 작업 범위 내인지 확인
+                // 직원이 candidatePos에 서면, 타겟과의 거리가:
+                // |tx - cx| <= 1, -1 <= ty - cy <= 3 이어야 함
                 int workDx = Mathf.Abs(targetTilePos.x - candidatePos.x);
                 int workDy = targetTilePos.y - candidatePos.y;
                 if (workDx > 1 || workDy < -1 || workDy > 3)
                     continue;
 
-                // 해당 위치가 직원이 서 있을 수 있는 유효한 위치인지 확인
-                if (!pathfinder.IsValidPosition(candidatePos))
+                // ★ 핵심: 발 위치와 몸통 위치가 반드시 공기(0)여야 함
+                int footTileId = gameMap.TileGrid[candidatePos.x, candidatePos.y];
+                if (footTileId != 0)
+                {
+                    if (showDebugInfo)
+                        Debug.Log($"[Employee] 후보 {candidatePos} 스킵: 발 위치가 고체 (ID={footTileId})");
                     continue;
+                }
 
-                // 현재 위치와 같으면 스킵
+                // 몸통 위치 체크 (직원 높이 2칸)
+                if (candidatePos.y + 1 < GameMap.MAP_HEIGHT)
+                {
+                    int bodyTileId = gameMap.TileGrid[candidatePos.x, candidatePos.y + 1];
+                    if (bodyTileId != 0)
+                    {
+                        if (showDebugInfo)
+                            Debug.Log($"[Employee] 후보 {candidatePos} 스킵: 몸통 위치가 고체 (ID={bodyTileId})");
+                        continue;
+                    }
+                }
+
+                // 발 아래에 바닥이 있어야 함
+                int groundY = candidatePos.y - 1;
+                if (groundY < 0) continue;
+
+                int groundTileId = gameMap.TileGrid[candidatePos.x, groundY];
+                bool hasFloorTile = FloorTile.HasFloorTileAt(new Vector2Int(candidatePos.x, groundY));
+                bool hasConstructedFloor = gameMap.IsTileOccupied(candidatePos.x, groundY) &&
+                                           !gameMap.DoesTileBlockMovement(candidatePos.x, groundY);
+                bool hasGround = groundTileId != 0 || hasFloorTile || hasConstructedFloor;
+
+                if (!hasGround)
+                {
+                    // 사다리 위에 서 있는 경우도 허용
+                    FloorTile ladder = FloorTile.GetFloorTileAt(new Vector2Int(candidatePos.x, groundY));
+                    FloorTile currentLadder = FloorTile.GetFloorTileAt(candidatePos);
+                    bool hasLadder = (ladder != null && ladder.AllowsVerticalMovement()) ||
+                                     (currentLadder != null && currentLadder.AllowsVerticalMovement());
+                    if (!hasLadder)
+                    {
+                        if (showDebugInfo)
+                            Debug.Log($"[Employee] 후보 {candidatePos} 스킵: 바닥 없음");
+                        continue;
+                    }
+                }
+
+                // 현재 위치와 같으면 스킵 (이미 거기 있음)
                 if (candidatePos == startPos)
                     continue;
 
                 // 경로가 존재하는지 확인
                 List<Vector2Int> path = pathfinder.FindPath(startPos, candidatePos);
                 if (path == null || path.Count == 0)
+                {
+                    if (showDebugInfo)
+                        Debug.Log($"[Employee] 후보 {candidatePos} 스킵: 경로 없음");
                     continue;
+                }
 
                 float distance = Vector2Int.Distance(startPos, candidatePos);
                 int heightDiff = Mathf.Abs(candidatePos.y - currentFootTile.y);
+
+                // ★ 낙하 안전성: 타겟 바로 위(같은 X, 위쪽)면 타일 파괴 시 낙하 위험
+                // 안전한 위치 = 다른 X좌표이거나, 타겟보다 아래에 있거나
+                bool willFallAfterMining = (candidatePos.x == targetTilePos.x) &&
+                                           (candidatePos.y > targetTilePos.y) &&
+                                           (candidatePos.y == targetTilePos.y + 1); // 바로 위 1칸만 위험
+                int fallSafety = willFallAfterMining ? 1 : 0; // 0 = 안전, 1 = 낙하 위험
+
+                // 위쪽 위치 우선 가중치 (낙하 안전성보다 후순위)
+                int verticalPriority = (candidatePos.y > targetTilePos.y) ? 0 : 1;
+
+                if (showDebugInfo)
+                {
+                    Debug.Log($"[Employee] ★후보 추가★: {candidatePos} (경로={path.Count}, 거리={distance:F1}, 낙하안전={fallSafety}, 수직우선={verticalPriority})");
+                }
 
                 candidates.Add(new WorkPositionCandidate
                 {
                     position = candidatePos,
                     distance = distance,
                     heightDiff = heightDiff,
-                    pathLength = path.Count
+                    pathLength = path.Count,
+                    fallSafety = fallSafety,
+                    verticalPriority = verticalPriority
                 });
             }
         }
@@ -692,22 +847,21 @@ public class Employee : MonoBehaviour
             return Vector3.zero;
         }
 
-        // 휴리스틱 정렬
+        // ★ 수정된 휴리스틱 정렬: 낙하 안전성 -> 위쪽 위치 우선 -> 경로 길이 -> 높이차 -> 거리
         var sortedCandidates = candidates
-            .OrderBy(c => c.pathLength)
+            .OrderBy(c => c.fallSafety)        // 낙하 안전한 위치 우선 (0=안전, 1=위험)
+            .ThenBy(c => c.verticalPriority)   // 타겟 위쪽 우선
+            .ThenBy(c => c.pathLength)
             .ThenBy(c => c.heightDiff)
             .ThenBy(c => c.distance)
             .ToList();
 
         Vector2Int bestPos = sortedCandidates[0].position;
 
-        if (showDebugInfo)
-        {
-            Debug.Log($"[Employee] 작업 위치 선택: {bestPos} (타겟: {targetTilePos}, 후보: {candidates.Count}개)");
-        }
+        Debug.Log($"[Employee] ★작업 위치 선택★: {bestPos} (타겟: {targetTilePos}, 후보: {candidates.Count}개)");
 
         // 타일 좌표를 월드 좌표로 변환
-        // 타일의 정중앙에 서도록 +0.5f 추가
+        // 직원 피벗이 Bottom Center이므로 타일 중앙(+0.5)으로 이동
         return new Vector3(bestPos.x + 0.5f, bestPos.y, 0);
     }
 
@@ -717,6 +871,8 @@ public class Employee : MonoBehaviour
         public float distance;
         public int heightDiff;
         public int pathLength;
+        public int fallSafety;        // 0 = 안전 (낙하 없음), 1 = 위험 (타겟 파괴 시 낙하)
+        public int verticalPriority;  // 0 = 타겟 위쪽 (우선), 1 = 같은 높이 또는 아래
     }
     
     private void StartWork(IWorkTarget target)
@@ -854,18 +1010,82 @@ public class Employee : MonoBehaviour
     #endregion
     
     #region 욕구 관리
-    
+
     public void Eat(float nutritionValue)
     {
         currentNeeds.hunger += nutritionValue;
         currentNeeds.hunger = Mathf.Clamp(currentNeeds.hunger, 0f, 100f);
-        
+
         if (showDebugInfo)
         {
             Debug.Log($"[Employee] {employeeData.employeeName}이(가) 식사했습니다. (배고픔: {currentNeeds.hunger:F0}%)");
         }
     }
-    
+
+    #endregion
+
+    #region 스탯/욕구 수정 (이벤트 시스템용)
+
+    /// <summary>
+    /// 체력 수정
+    /// </summary>
+    public void ModifyHealth(float amount)
+    {
+        currentStats.health += amount;
+        currentStats.health = Mathf.Clamp(currentStats.health, 0f, currentStats.maxHealth);
+        OnStatsChanged?.Invoke(currentStats);
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] {employeeData.employeeName} 체력 {(amount >= 0 ? "+" : "")}{amount} (현재: {currentStats.health:F0})");
+        }
+    }
+
+    /// <summary>
+    /// 정신력 수정
+    /// </summary>
+    public void ModifyMental(float amount)
+    {
+        currentStats.mental += amount;
+        currentStats.mental = Mathf.Clamp(currentStats.mental, 0f, currentStats.maxMental);
+        OnStatsChanged?.Invoke(currentStats);
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] {employeeData.employeeName} 정신력 {(amount >= 0 ? "+" : "")}{amount} (현재: {currentStats.mental:F0})");
+        }
+    }
+
+    /// <summary>
+    /// 배고픔 수정
+    /// </summary>
+    public void ModifyHunger(float amount)
+    {
+        currentNeeds.hunger += amount;
+        currentNeeds.hunger = Mathf.Clamp(currentNeeds.hunger, 0f, 100f);
+        OnNeedsChanged?.Invoke(currentNeeds);
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] {employeeData.employeeName} 배고픔 {(amount >= 0 ? "+" : "")}{amount} (현재: {currentNeeds.hunger:F0}%)");
+        }
+    }
+
+    /// <summary>
+    /// 피로도 수정
+    /// </summary>
+    public void ModifyFatigue(float amount)
+    {
+        currentNeeds.fatigue += amount;
+        currentNeeds.fatigue = Mathf.Clamp(currentNeeds.fatigue, 0f, 100f);
+        OnNeedsChanged?.Invoke(currentNeeds);
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] {employeeData.employeeName} 피로도 {(amount >= 0 ? "+" : "")}{amount} (현재: {currentNeeds.fatigue:F0}%)");
+        }
+    }
+
     #endregion
     
     #region 상태 관리
@@ -939,25 +1159,253 @@ public class Employee : MonoBehaviour
     }
     
     #endregion
-    
+
+    #region 성장 시스템 (유니크 직원 전용)
+
+    /// <summary>
+    /// 경험치 획득
+    /// </summary>
+    public void GainExperience(int amount)
+    {
+        if (!isUnique) return;  // 일반 직원은 성장하지 않음
+
+        experience += amount;
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] {DisplayName} 경험치 획득: +{amount} (현재: {experience}/{experienceToNextLevel})");
+        }
+
+        // 레벨업 체크
+        while (experience >= experienceToNextLevel)
+        {
+            LevelUp();
+        }
+    }
+
+    /// <summary>
+    /// 레벨업
+    /// </summary>
+    private void LevelUp()
+    {
+        experience -= experienceToNextLevel;
+        level++;
+
+        // 다음 레벨 필요 경험치 증가
+        experienceToNextLevel = CalculateExperienceToNextLevel(level);
+
+        // 스탯 증가
+        int healthGain = 5 + level;
+        int mentalGain = 3 + level / 2;
+        int attackGain = level % 3 == 0 ? 1 : 0;  // 3레벨마다 공격력 증가
+
+        currentStats.maxHealth += healthGain;
+        currentStats.health = currentStats.maxHealth;  // 레벨업 시 체력 회복
+        currentStats.maxMental += mentalGain;
+        currentStats.mental = currentStats.maxMental;  // 레벨업 시 정신력 회복
+        currentStats.attackPower += attackGain;
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] {DisplayName} 레벨업! Lv.{level} (HP+{healthGain}, Mental+{mentalGain})");
+        }
+
+        OnStatsChanged?.Invoke(currentStats);
+        OnLevelUp?.Invoke(level);
+    }
+
+    /// <summary>
+    /// 다음 레벨 필요 경험치 계산
+    /// </summary>
+    private int CalculateExperienceToNextLevel(int currentLevel)
+    {
+        // 레벨^1.5 * 100 (점점 증가)
+        return Mathf.RoundToInt(Mathf.Pow(currentLevel, 1.5f) * 100);
+    }
+
+    /// <summary>
+    /// 작업 능력 향상 (특정 작업 속도 증가)
+    /// </summary>
+    public void ImproveAbility(WorkType workType, float amount)
+    {
+        if (!isUnique || runtimeAbilities == null) return;
+
+        switch (workType)
+        {
+            case WorkType.Mining:
+                runtimeAbilities.miningSpeed += amount;
+                break;
+            case WorkType.Chopping:
+                runtimeAbilities.choppingSpeed += amount;
+                break;
+            case WorkType.Research:
+                runtimeAbilities.researchSpeed += amount;
+                break;
+            case WorkType.Crafting:
+                runtimeAbilities.craftingSpeed += amount;
+                break;
+            case WorkType.Gardening:
+                runtimeAbilities.gardeningSpeed += amount;
+                break;
+            case WorkType.Building:
+                runtimeAbilities.buildingSpeed += amount;
+                break;
+            case WorkType.Hauling:
+                runtimeAbilities.haulingSpeed += amount;
+                break;
+            case WorkType.Demolish:
+                runtimeAbilities.demolishSpeed += amount;
+                break;
+        }
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] {DisplayName} {workType} 능력 향상: +{amount:F2}");
+        }
+    }
+
+    #endregion
+
+    #region 저장/로드
+
+    /// <summary>
+    /// 저장용 데이터 생성
+    /// </summary>
+    public EmployeeSaveData CreateSaveData()
+    {
+        var saveData = new EmployeeSaveData
+        {
+            instanceId = instanceId,
+            templateId = employeeData?.employeeID ?? 0,
+            isUnique = isUnique,
+            customName = customName,
+
+            posX = transform.position.x,
+            posY = transform.position.y,
+
+            state = (int)currentState,
+
+            level = level,
+            experience = experience,
+            experienceToNextLevel = experienceToNextLevel,
+
+            maxHealth = (int)currentStats.maxHealth,
+            currentHealth = (int)currentStats.health,
+            maxMental = (int)currentStats.maxMental,
+            currentMental = (int)currentStats.mental,
+            attackPower = currentStats.attackPower,
+
+            hunger = currentNeeds.hunger,
+            fatigue = currentNeeds.fatigue,
+
+            abilities = WorkAbilitiesSaveData.FromWorkAbilities(runtimeAbilities),
+
+            assignedWorkOrderId = -1  // TODO: 작업 연결
+        };
+
+        // 작업 우선순위 저장
+        saveData.workPriorities = new List<WorkPrioritySaveData>();
+        if (workPriorities != null)
+        {
+            foreach (var wp in workPriorities)
+            {
+                saveData.workPriorities.Add(new WorkPrioritySaveData
+                {
+                    workType = (int)wp.workType,
+                    priority = wp.priority,
+                    enabled = wp.enabled
+                });
+            }
+        }
+
+        return saveData;
+    }
+
+    /// <summary>
+    /// 저장된 데이터로 복원
+    /// </summary>
+    public void RestoreFromSaveData(EmployeeSaveData data)
+    {
+        instanceId = data.instanceId;
+        isUnique = data.isUnique;
+        customName = data.customName;
+
+        level = data.level;
+        experience = data.experience;
+        experienceToNextLevel = data.experienceToNextLevel;
+
+        // 스탯 복원 (성장된 값 그대로)
+        currentStats = new EmployeeStats
+        {
+            maxHealth = data.maxHealth,
+            health = data.currentHealth,
+            maxMental = data.maxMental,
+            mental = data.currentMental,
+            attackPower = data.attackPower
+        };
+
+        currentNeeds = new EmployeeNeeds
+        {
+            hunger = data.hunger,
+            fatigue = data.fatigue
+        };
+
+        // 상태 복원
+        currentState = (EmployeeState)data.state;
+
+        // 능력치 복원
+        if (data.abilities != null)
+        {
+            runtimeAbilities = data.abilities.ToWorkAbilities();
+        }
+
+        // 작업 우선순위 복원
+        if (data.workPriorities != null && data.workPriorities.Count > 0)
+        {
+            workPriorities = new List<WorkPriority>();
+            foreach (var wp in data.workPriorities)
+            {
+                workPriorities.Add(new WorkPriority
+                {
+                    workType = (WorkType)wp.workType,
+                    priority = wp.priority,
+                    enabled = wp.enabled
+                });
+            }
+        }
+
+        // 이름 갱신
+        name = $"Employee_{DisplayName}_{instanceId}";
+
+        // 비주얼 갱신
+        UpdateVisualState();
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] {DisplayName} 복원 완료: Lv.{level}, HP:{currentStats.health}/{currentStats.maxHealth}");
+        }
+    }
+
+    #endregion
+
     private void ShowDebugStatus()
     {
         if (Time.frameCount % 60 != 0) return;
-        
-        string status = $"[{employeeData.employeeName}] ";
-        status += $"State:{currentState} Work:{currentWork} ";
+
+        string status = $"[{DisplayName}] ";
+        status += $"Lv.{level} State:{currentState} Work:{currentWork} ";
         status += $"HP:{currentStats.health:F0}/{currentStats.maxHealth} ";
         status += $"Mental:{currentStats.mental:F0}/{currentStats.maxMental} ";
         status += $"Hunger:{currentNeeds.hunger:F0}% Fatigue:{currentNeeds.fatigue:F0}%";
-        
+
         if (currentWorkTarget != null)
         {
             status += $" | Target:{currentWorkTarget.GetWorkPosition()}";
         }
-        
+
         Debug.Log(status);
     }
-    
+
     // Public 프로퍼티
     public EmployeeData Data => employeeData;
     public EmployeeStats Stats => currentStats;

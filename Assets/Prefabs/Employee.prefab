@@ -153,10 +153,10 @@ BoxCollider2D:
   m_UsedByEffector: 0
   m_CompositeOperation: 0
   m_CompositeOrder: 0
-  m_Offset: {x: 1, y: 0.88}
+  m_Offset: {x: 0, y: 0.88}
   m_SpriteTilingProperty:
     border: {x: 0, y: 0, z: 0, w: 0}
-    pivot: {x: 0, y: 0}
+    pivot: {x: 0.5, y: 0}
     oldSize: {x: 2, y: 1.96875}
     newSize: {x: 1, y: 1}
     adaptiveTilingThreshold: 0.5
@@ -178,6 +178,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   employeeData: {fileID: 11400000, guid: a81727da4ccffc8499c698c5f898e51d, type: 2}
+  instanceId: 0
+  isUnique: 1
+  customName: 
+  level: 1
+  experience: 0
+  experienceToNextLevel: 100
   currentStats:
     health: 0
     maxHealth: 0
@@ -189,6 +195,23 @@ MonoBehaviour:
     fatigue: 0
   currentWork: 0
   currentState: 0
+  runtimeAbilities:
+    canMine: 0
+    canChop: 0
+    canResearch: 0
+    canCraft: 0
+    canGarden: 0
+    canBuild: 0
+    canHaul: 0
+    canDemolish: 0
+    miningSpeed: 1
+    choppingSpeed: 1
+    researchSpeed: 1
+    craftingSpeed: 1
+    gardeningSpeed: 1
+    buildingSpeed: 1
+    haulingSpeed: 1
+    demolishSpeed: 1
   workPriorities:
   - workType: 1
     priority: 1

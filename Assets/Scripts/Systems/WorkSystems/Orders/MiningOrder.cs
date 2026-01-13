@@ -22,7 +22,7 @@ public class MiningOrder : IWorkTarget
     public void CompleteWork(Employee worker)
     {
         if (completed) return; // 중복 완료 방지
-        
+
         // ★ 디버그: 채굴 완료 시 직원 위치와 타겟 위치 출력
         if (worker != null)
         {
@@ -30,23 +30,23 @@ public class MiningOrder : IWorkTarget
             Debug.Log($"[MiningOrder] ★채굴완료★ 직원발위치={footTile}, 채굴타겟={position}, " +
                       $"거리: dx={Mathf.Abs(position.x - footTile.x)}, dy={position.y - footTile.y}");
         }
-        
+
         completed = true;
         assignedWorker = null;
-        
+
         // 실제 채광 실행
         if (MapGenerator.instance != null)
         {
             GameMap gameMap = MapGenerator.instance.GameMapInstance;
             MapRenderer mapRenderer = MapGenerator.instance.MapRendererInstance;
             ResourceManager resourceManager = MapGenerator.instance.ResourceManagerInstance;
-            
+
             if (gameMap == null || mapRenderer == null || resourceManager == null)
             {
                 Debug.LogError("[MiningOrder] 필수 컴포넌트가 null입니다!");
                 return;
             }
-            
+
             // 타일이 아직 존재하는지 확인
             if (position.x < 0 || position.x >= GameMap.MAP_WIDTH ||
                 position.y < 0 || position.y >= GameMap.MAP_HEIGHT)
@@ -54,7 +54,7 @@ public class MiningOrder : IWorkTarget
                 Debug.LogWarning($"[MiningOrder] 유효하지 않은 위치: {position}");
                 return;
             }
-            
+
             // 이미 제거된 타일인지 확인
             int currentTileID = gameMap.TileGrid[position.x, position.y];
             if (currentTileID == 0) // 이미 공기 타일
@@ -62,7 +62,7 @@ public class MiningOrder : IWorkTarget
                 Debug.LogWarning($"[MiningOrder] 타일이 이미 제거됨: {position}");
                 return;
             }
-            
+
             // 드롭 아이템 생성
             GameObject dropPrefab = resourceManager.GetDropPrefab(tileID);
             if (dropPrefab != null && InventoryManager.instance != null)
@@ -84,13 +84,14 @@ public class MiningOrder : IWorkTarget
                     GameObject.Instantiate(dropPrefab, dropPos, Quaternion.identity);
                 }
             }
-            
+
             // 타일 제거
             gameMap.SetTile(position.x, position.y, 0);
             gameMap.UnmarkTileOccupied(position.x, position.y);
             mapRenderer.UpdateTileVisual(position.x, position.y);
-            
+
             Debug.Log($"[MiningOrder] 채광 완료: {position} (TileID: {tileID})");
+            // 낙하는 EmployeeMovement.CheckGroundAndFall()에서 자동 처리됨
         }
         else
         {

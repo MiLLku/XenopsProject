@@ -8,6 +8,10 @@ public class EmployeeData : ScriptableObject
     public int employeeID;
     public string employeeName;
     public Sprite portrait;
+
+    [Header("직원 유형")]
+    [Tooltip("유니크 직원은 성장 시스템이 적용됩니다")]
+    public bool isUnique = true;
     
     [Header("기본 스탯")]
     [Range(50, 200)]
