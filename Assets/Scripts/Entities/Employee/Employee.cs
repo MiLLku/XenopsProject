@@ -982,31 +982,166 @@ public class Employee : MonoBehaviour
             StopCoroutine(currentWorkCoroutine);
             currentWorkCoroutine = null;
         }
-        
+
         if (currentWorkTarget != null)
         {
             currentWorkTarget.CancelWork(this);
-            
+
             if (WorkSystemManager.instance != null)
             {
                 WorkSystemManager.instance.OnWorkerCancelledWork(this);
             }
-            
+
             currentWorkTarget = null;
             currentWorkOrder = null;
         }
-        
+
         currentWork = WorkType.None;
         workProgress = 0f;
-        
+
         if (movement != null)
         {
             movement.StopMoving();
         }
-        
+
         SetState(EmployeeState.Idle);
     }
-    
+
+    /// <summary>
+    /// 제작 작업을 할당합니다 (제재소 등 생산 건물용)
+    /// </summary>
+    public void AssignCraftingWork(CraftingOrder craftingOrder, Vector3 workPosition)
+    {
+        if (craftingOrder == null)
+        {
+            Debug.LogError("[Employee] CraftingOrder가 null입니다.");
+            return;
+        }
+
+        if (currentState == EmployeeState.Dead || currentState == EmployeeState.MentalBreak)
+        {
+            Debug.LogWarning($"[Employee] {DisplayName}는 작업할 수 없는 상태입니다.");
+            return;
+        }
+
+        // 현재 작업 취소
+        if (currentWorkTarget != null)
+        {
+            CancelWork();
+        }
+
+        currentWorkOrder = craftingOrder;
+        currentWorkTarget = craftingOrder; // CraftingOrder는 IWorkTarget 구현
+        currentWork = WorkType.Crafting;
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[Employee] {DisplayName}에게 제작 작업 할당: {craftingOrder.orderName}");
+        }
+
+        // 작업 위치로 이동
+        if (movement != null)
+        {
+            SetState(EmployeeState.Moving);
+            Debug.Log($"[Employee] {DisplayName}: 제작 위치로 이동 {workPosition}");
+
+            movement.MoveTo(workPosition,
+                onComplete: () =>
+                {
+                    // 도착 후 제작 시작
+                    if (currentWorkTarget == craftingOrder)
+                    {
+                        StartCraftingWork(craftingOrder);
+                    }
+                },
+                onFailed: () =>
+                {
+                    Debug.LogWarning($"[Employee] {DisplayName}: 제작 위치로 이동 실패");
+                    CancelWork();
+                }
+            );
+        }
+        else
+        {
+            // Movement가 없으면 즉시 시작
+            StartCraftingWork(craftingOrder);
+        }
+    }
+
+    /// <summary>
+    /// 제작 작업 시작
+    /// </summary>
+    private void StartCraftingWork(CraftingOrder craftingOrder)
+    {
+        if (craftingOrder == null || !craftingOrder.IsWorkAvailable())
+        {
+            Debug.LogWarning($"[Employee] {DisplayName}: 제작 작업을 시작할 수 없습니다.");
+            CancelWork();
+            return;
+        }
+
+        SetState(EmployeeState.Working);
+        currentWork = WorkType.Crafting;
+        workProgress = 0f;
+
+        Debug.Log($"[Employee] {DisplayName}: 제작 작업 시작 - {craftingOrder.orderName}");
+
+        // 제작 시작
+        craftingOrder.StartWorking();
+
+        // 제작 진행 코루틴 시작
+        currentWorkCoroutine = StartCoroutine(CraftingWorkCoroutine(craftingOrder));
+    }
+
+    /// <summary>
+    /// 제작 작업 진행 코루틴
+    /// </summary>
+    private IEnumerator CraftingWorkCoroutine(CraftingOrder craftingOrder)
+    {
+        float workSpeed = GetWorkSpeed(WorkType.Crafting);
+        if (workSpeed <= 0f)
+        {
+            Debug.LogWarning($"[Employee] {DisplayName}: 제작 속도가 0 이하입니다.");
+            CancelWork();
+            yield break;
+        }
+
+        while (craftingOrder != null && craftingOrder.IsWorkAvailable())
+        {
+            // 진행도 업데이트
+            float deltaTime = Time.deltaTime * workSpeed;
+            craftingOrder.UpdateProgress(deltaTime);
+
+            workProgress = craftingOrder.CraftingProgress;
+
+            // 완료 확인
+            if (craftingOrder.CraftingProgress >= 1f)
+            {
+                Debug.Log($"[Employee] {DisplayName}: 제작 완료!");
+
+                // 경험치 획득
+                int expGain = Mathf.CeilToInt(craftingOrder.GetWorkTime() * 2f);
+                GainExperience(expGain);
+
+                // 작업 완료 처리
+                currentWorkTarget = null;
+                currentWorkOrder = null;
+                currentWork = WorkType.None;
+                workProgress = 0f;
+                currentWorkCoroutine = null;
+
+                SetState(EmployeeState.Idle);
+                yield break;
+            }
+
+            yield return null;
+        }
+
+        // 작업이 취소되거나 실패한 경우
+        Debug.Log($"[Employee] {DisplayName}: 제작 작업이 중단되었습니다.");
+        CancelWork();
+    }
+
     #endregion
     
     #region 욕구 관리
