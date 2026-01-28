@@ -6,13 +6,12 @@ using System.Collections.Generic;
 /// <summary>
 /// 건설 UI 메인 패널
 /// 카테고리 탭과 건물 목록을 표시합니다.
-/// 
+///
 /// 저장 위치: Assets/Scripts/UI/Construction/ConstructionUI.cs
 /// </summary>
-public class ConstructionUI : MonoBehaviour
+public class ConstructionUI : BasePanel
 {
     [Header("패널 참조")]
-    [SerializeField] private GameObject panel;
     [SerializeField] private CanvasGroup canvasGroup;
     
     [Header("카테고리 탭")]
@@ -66,7 +65,7 @@ public class ConstructionUI : MonoBehaviour
         // 버튼 이벤트 연결
         if (closeButton != null)
         {
-            closeButton.onClick.AddListener(Close);
+            closeButton.onClick.AddListener(OnClose);
         }
         
         if (buildButton != null)
@@ -86,12 +85,6 @@ public class ConstructionUI : MonoBehaviour
         
         // 초기화
         InitializeCategoryTabs();
-        
-        // 시작 시 닫힌 상태
-        if (panel != null)
-        {
-            panel.SetActive(false);
-        }
     }
     
     void OnDestroy()
@@ -108,17 +101,27 @@ public class ConstructionUI : MonoBehaviour
     }
     
     #region 패널 열기/닫기
-    
+
     /// <summary>
-    /// UI를 엽니다.
+    /// UI를 엽니다. (BasePanel 오버라이드)
     /// </summary>
-    public void Open()
+    public override void OnOpen()
     {
-        if (panel == null) return;
-        
-        panel.SetActive(true);
+        base.OnOpen();
         isOpen = true;
-        
+
+        // Start()보다 먼저 호출될 수 있으므로 초기화 확인
+        if (constructionManager == null)
+        {
+            constructionManager = ConstructionManager.instance;
+        }
+
+        if (constructionManager == null)
+        {
+            Debug.LogError("[ConstructionUI] ConstructionManager를 찾을 수 없습니다!");
+            return;
+        }
+
         // 첫 번째 카테고리 선택
         var categories = constructionManager.GetAvailableCategories();
         if (categories.Count > 0)
@@ -130,43 +133,26 @@ public class ConstructionUI : MonoBehaviour
             // 카테고리가 없으면 기본 카테고리 선택
             SelectCategory(BuildingCategory.Production);
         }
-        
+
         // 상세 정보 초기화
         ClearDetail();
     }
-    
+
     /// <summary>
-    /// UI를 닫습니다.
+    /// UI를 닫습니다. (BasePanel 오버라이드)
     /// </summary>
-    public void Close()
+    public override void OnClose()
     {
-        if (panel == null) return;
-        
-        panel.SetActive(false);
+        base.OnClose();
         isOpen = false;
-        
+
         // 배치 모드도 종료
         if (constructionManager != null && constructionManager.IsPlacementMode)
         {
             constructionManager.ExitPlacementMode();
         }
     }
-    
-    /// <summary>
-    /// 열기/닫기 토글
-    /// </summary>
-    public void Toggle()
-    {
-        if (isOpen)
-        {
-            Close();
-        }
-        else
-        {
-            Open();
-        }
-    }
-    
+
     #endregion
     
     #region 카테고리 탭

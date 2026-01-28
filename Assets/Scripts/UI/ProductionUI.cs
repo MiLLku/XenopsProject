@@ -8,7 +8,7 @@ using System.Collections.Generic;
 /// 생산 건물 UI - 제작 가능한 레시피 리스트 표시 및 제작 시작
 /// RecipeItem 프리팹이 각자의 수량 조절 버튼과 제작 버튼을 가짐
 /// </summary>
-public class ProductionUI : MonoBehaviour
+public class ProductionUI : BasePanel
 {
     [Header("UI 요소 연결")]
     [SerializeField] private TextMeshProUGUI headerText;

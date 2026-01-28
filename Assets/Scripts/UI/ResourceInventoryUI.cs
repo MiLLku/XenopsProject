@@ -6,10 +6,9 @@ using System.Collections.Generic;
 /// <summary>
 /// 획득한 자원 목록을 표시하는 UI
 /// </summary>
-public class ResourceInventoryUI : MonoBehaviour
+public class ResourceInventoryUI : BasePanel
 {
     [Header("UI 요소")]
-    [SerializeField] private GameObject panel; // UI 패널
     [SerializeField] private Transform contentContainer; // 스크롤뷰의 Content
     [SerializeField] private GameObject itemRowPrefab; // 아이템 행 프리팹
     [SerializeField] private Button closeButton;
@@ -22,16 +21,10 @@ public class ResourceInventoryUI : MonoBehaviour
 
     void Start()
     {
-        // 패널 초기 상태는 닫힘
-        if (panel != null)
-        {
-            panel.SetActive(false);
-        }
-
         // 닫기 버튼 연결
         if (closeButton != null)
         {
-            closeButton.onClick.AddListener(CloseUI);
+            closeButton.onClick.AddListener(OnClose);
         }
 
         // 인벤토리 변경 이벤트 구독
@@ -55,48 +48,30 @@ public class ResourceInventoryUI : MonoBehaviour
         // 단축키로 토글
         if (Input.GetKeyDown(toggleKey))
         {
-            ToggleUI();
+            if (UIManager.instance != null)
+            {
+                UIManager.instance.TogglePanel(UIPanelType.ResourceInventory);
+            }
         }
     }
 
     /// <summary>
-    /// UI 열기/닫기 토글
+    /// UI 열기 (BasePanel 오버라이드)
     /// </summary>
-    public void ToggleUI()
+    public override void OnOpen()
     {
-        if (isOpen)
-        {
-            CloseUI();
-        }
-        else
-        {
-            OpenUI();
-        }
+        base.OnOpen();
+        isOpen = true;
+        RefreshUI();
     }
 
     /// <summary>
-    /// UI 열기
+    /// UI 닫기 (BasePanel 오버라이드)
     /// </summary>
-    public void OpenUI()
+    public override void OnClose()
     {
-        if (panel != null)
-        {
-            panel.SetActive(true);
-            isOpen = true;
-            RefreshUI();
-        }
-    }
-
-    /// <summary>
-    /// UI 닫기
-    /// </summary>
-    public void CloseUI()
-    {
-        if (panel != null)
-        {
-            panel.SetActive(false);
-            isOpen = false;
-        }
+        base.OnClose();
+        isOpen = false;
     }
 
     /// <summary>

@@ -240,15 +240,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
             // UIManager를 통해 건설 UI 열기
             if (UIManager.instance != null)
             {
-                ConstructionUI constructionUI = UIManager.instance.GetPanel<ConstructionUI>(UIPanelType.ConstructionUI);
-                if (constructionUI != null)
-                {
-                    constructionUI.Open();
-                }
-                else
-                {
-                    Debug.LogWarning("[InteractionManager] ConstructionUI를 찾을 수 없습니다.");
-                }
+                UIManager.instance.ShowPanel(UIPanelType.ConstructionUI);
             }
         }
 
@@ -277,11 +269,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
             // UIManager를 통해 건설 UI 닫기
             if (UIManager.instance != null)
             {
-                ConstructionUI constructionUI = UIManager.instance.GetPanel<ConstructionUI>(UIPanelType.ConstructionUI);
-                if (constructionUI != null)
-                {
-                    constructionUI.Close();
-                }
+                UIManager.instance.HidePanel(UIPanelType.ConstructionUI);
             }
         }
     }

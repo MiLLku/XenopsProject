@@ -8,7 +8,7 @@ using System.Collections.Generic;
 /// 작업 할당 패널 - UIManager를 통해 관리됨
 /// WorkSystemManager가 Setup()을 호출하여 초기화
 /// </summary>
-public class WorkAssignmentPanel : MonoBehaviour
+public class WorkAssignmentPanel : BasePanel
 {
     [Header("UI 요소 연결")]
     [SerializeField] private TextMeshProUGUI headerText;

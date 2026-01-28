@@ -295,7 +295,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1c35cf3408524e1a9b02eca1b5c53c5c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  panel: {fileID: 91920130}
+  panelType: 0
   canvasGroup: {fileID: 91920132}
   categoryTabContainer: {fileID: 799757894}
   categoryTabPrefab: {fileID: 8606391413505590380, guid: c5c926e832968cf4ea622eeafc64c49b, type: 3}
@@ -1848,7 +1848,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 033c27db9dd61ea4eb295e471e17462d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  panel: {fileID: 436134718}
+  panelType: 0
   contentContainer: {fileID: 0}
   itemRowPrefab: {fileID: 0}
   closeButton: {fileID: 0}
@@ -3624,6 +3624,7 @@ Transform:
   - {fileID: 1521592137}
   - {fileID: 1444640447}
   - {fileID: 853022714}
+  - {fileID: 1042153400}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1009719779
@@ -3914,11 +3915,11 @@ Transform:
   m_GameObject: {fileID: 1042153399}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: -2975.2678, y: -513.1718, z: 16.483654}
+  m_LocalPosition: {x: 0.000030517578, y: 0.000015258789, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 2011949707}
+  m_Father: {fileID: 1006733511}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1042153401
 MonoBehaviour:
@@ -3934,19 +3935,19 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   uiList:
   - type: 2
-    panelObject: {fileID: 436134718}
+    panel: {fileID: 436134723}
     alwaysActive: 0
   - type: 5
-    panelObject: {fileID: 91920130}
+    panel: {fileID: 91920133}
     alwaysActive: 0
   - type: 1
-    panelObject: {fileID: 1725534407}
-    alwaysActive: 0
+    panel: {fileID: 1725534411}
+    alwaysActive: 1
   - type: 3
-    panelObject: {fileID: 1412427830}
+    panel: {fileID: 1412427832}
     alwaysActive: 0
   - type: 6
-    panelObject: {fileID: 1373879418}
+    panel: {fileID: 1373879422}
     alwaysActive: 0
 --- !u!1 &1102118578
 GameObject:
@@ -4752,20 +4753,27 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: dcc0b8fc1e20911459a34207e58a3088, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  panelType: 0
   headerText: {fileID: 1102118580}
   recipeListContainer: {fileID: 920633459}
   recipeItemPrefab: {fileID: 2886806179442844162, guid: 1c5640ba19041184391c51e39132e7dc, type: 3}
   closeButton: {fileID: 415939537}
---- !u!1 &1412427830 stripped
-GameObject:
-  m_CorrespondingSourceObject: {fileID: 8704180894312760479, guid: e66ce9c2987f91f4ea012c3dfc43d638, type: 3}
-  m_PrefabInstance: {fileID: 1701330392}
-  m_PrefabAsset: {fileID: 0}
 --- !u!224 &1412427831 stripped
 RectTransform:
   m_CorrespondingSourceObject: {fileID: 8536503223508512409, guid: e66ce9c2987f91f4ea012c3dfc43d638, type: 3}
   m_PrefabInstance: {fileID: 1701330392}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &1412427832 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 1578032511203158723, guid: e66ce9c2987f91f4ea012c3dfc43d638, type: 3}
+  m_PrefabInstance: {fileID: 1701330392}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dbe8a65152e7486d9fdd93e7f830eae9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1 &1424265334
 GameObject:
   m_ObjectHideFlags: 0
@@ -4921,6 +4929,7 @@ MonoBehaviour:
   placementGhostPrefab: {fileID: 3333614752028260898, guid: 2f7e4c6d5957eec42bb5617e93f4a06f, type: 3}
   allBuildingData:
   - {fileID: 11400000, guid: 65ae7c40853c91847b88727a4acd7152, type: 2}
+  - {fileID: 11400000, guid: 360418e6dfc55e743b5e1331a7de35fc, type: 2}
   validPlacementColor: {r: 1, g: 1, b: 1, a: 0.5}
   invalidPlacementColor: {r: 1, g: 0.3, b: 0.3, a: 0.5}
   constructionParent: {fileID: 0}
@@ -5860,7 +5869,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &1725534408
 RectTransform:
   m_ObjectHideFlags: 0
@@ -5932,6 +5941,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b9b0d8377cd19434ebd1472e2a2dc363, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  panelType: 0
   modeNameText: {fileID: 620436575}
   keyHintsText: {fileID: 365829790}
   normalColor: {r: 1, g: 1, b: 1, a: 1}
@@ -6354,7 +6364,6 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 633940214}
-  - {fileID: 1042153400}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &2036225264

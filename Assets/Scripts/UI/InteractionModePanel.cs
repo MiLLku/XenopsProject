@@ -4,9 +4,9 @@ using TMPro;
 
 /// <summary>
 /// 현재 상호작용 모드를 화면에 표시하는 UI 패널
-/// UIManager를 통해 관리됨
+/// UIManager를 통해 관리됨 (alwaysActive = true)
 /// </summary>
-public class InteractionModePanel : MonoBehaviour
+public class InteractionModePanel : BasePanel
 {
     [Header("UI References")]
     [SerializeField] private TextMeshProUGUI modeNameText;
@@ -23,9 +23,6 @@ public class InteractionModePanel : MonoBehaviour
 
     void Start()
     {
-        // UIManager가 비활성화하더라도 다시 활성화
-        gameObject.SetActive(true);
-
         interactionManager = InteractionManager.instance;
 
         if (interactionManager == null)
