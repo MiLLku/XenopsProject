@@ -2,32 +2,68 @@ using System;
 using System.Collections.Generic;
 
 /// <summary>
-/// 게임 저장 데이터의 최상위 컨테이너
-/// 모든 게임 상태를 담습니다.
+/// 게임 저장 데이터의 최상위 컨테이너.
+/// 모든 게임 상태(맵, 직원, 건물, 인벤토리, 작업, 이벤트)를 담습니다.
 /// </summary>
 [Serializable]
 public class SaveData
 {
-    // 메타 정보
-    public int saveVersion = 1;
-    public string saveName;
-    public long saveTimestamp;      // Unix timestamp
-    public float playTime;          // 총 플레이 시간(초)
+    #region 메타 정보
 
-    // 게임 데이터
+    /// <summary>세이브 파일 버전 (마이그레이션용)</summary>
+    public int saveVersion = 1;
+
+    /// <summary>세이브 슬롯 이름</summary>
+    public string saveName;
+
+    /// <summary>저장 시각 (Unix timestamp)</summary>
+    public long saveTimestamp;
+
+    /// <summary>총 플레이 시간 (초)</summary>
+    public float playTime;
+
+    #endregion
+
+    #region 게임 데이터
+
+    /// <summary>맵 데이터</summary>
     public MapSaveData map;
+
+    /// <summary>직원 데이터 목록</summary>
     public List<EmployeeSaveData> employees;
+
+    /// <summary>완성된 건물 데이터 목록</summary>
     public List<BuildingSaveData> buildings;
+
+    /// <summary>건설 현장 데이터 목록</summary>
     public List<ConstructionSiteSaveData> constructionSites;
+
+    /// <summary>작업 명령 데이터 목록</summary>
     public List<WorkOrderSaveData> workOrders;
+
+    /// <summary>인벤토리 데이터</summary>
     public InventorySaveData inventory;
+
+    /// <summary>바닥에 드롭된 아이템 목록</summary>
     public List<DroppedItemSaveData> droppedItems;
 
-    // 이벤트 시스템
+    #endregion
+
+    #region 시스템 데이터
+
+    /// <summary>이벤트 시스템 데이터</summary>
     public EventSystemSaveData eventSystem;
 
-    // ID 카운터 (로드 후 이어서 발급하기 위함)
+    /// <summary>다음 발급할 인스턴스 ID (로드 후 이어서 발급)</summary>
     public int nextInstanceId;
+
+    /// <summary>다음 작업물 ID (WorkSystemManager.nextOrderId)</summary>
+    public int nextOrderId;
+
+    /// <summary>다음 작업 Task ID (WorkTask.nextTaskId)</summary>
+    public int nextTaskId;
+
+    #endregion
 
     public SaveData()
     {

@@ -4,24 +4,32 @@ using TMPro;
 using System.Collections.Generic;
 
 /// <summary>
-/// 획득한 자원 목록을 표시하는 UI
+/// 자원 인벤토리 UI.
+/// 글로벌 인벤토리의 아이템 목록과 예약 정보를 표시합니다.
+/// 인벤토리 변경 이벤트를 구독하여 실시간으로 갱신됩니다.
 /// </summary>
 public class ResourceInventoryUI : BasePanel
 {
+    #region 필드 및 설정
+
     [Header("UI 요소")]
-    [SerializeField] private Transform contentContainer; // 스크롤뷰의 Content
-    [SerializeField] private GameObject itemRowPrefab; // 아이템 행 프리팹
+    [SerializeField] private Transform contentContainer;
+    [SerializeField] private GameObject itemRowPrefab;
     [SerializeField] private Button closeButton;
     [SerializeField] private TextMeshProUGUI headerText;
 
     [Header("설정")]
-    [SerializeField] private KeyCode toggleKey = KeyCode.I; // 인벤토리 열기/닫기 단축키
+    [SerializeField] private KeyCode toggleKey = KeyCode.I;
 
+    /// <summary>UI가 현재 열려있는지 여부</summary>
     private bool isOpen = false;
+
+    #endregion
+
+    #region 초기화 및 정리
 
     void Start()
     {
-        // 닫기 버튼 연결
         if (closeButton != null)
         {
             closeButton.onClick.AddListener(OnClose);
@@ -43,9 +51,12 @@ public class ResourceInventoryUI : BasePanel
         }
     }
 
+    #endregion
+
+    #region 입력 처리
+
     void Update()
     {
-        // 단축키로 토글
         if (Input.GetKeyDown(toggleKey))
         {
             if (UIManager.instance != null)
@@ -55,8 +66,12 @@ public class ResourceInventoryUI : BasePanel
         }
     }
 
+    #endregion
+
+    #region BasePanel 오버라이드
+
     /// <summary>
-    /// UI 열기 (BasePanel 오버라이드)
+    /// UI 열기. 인벤토리 내용을 갱신합니다.
     /// </summary>
     public override void OnOpen()
     {
@@ -66,7 +81,7 @@ public class ResourceInventoryUI : BasePanel
     }
 
     /// <summary>
-    /// UI 닫기 (BasePanel 오버라이드)
+    /// UI 닫기.
     /// </summary>
     public override void OnClose()
     {
@@ -74,8 +89,13 @@ public class ResourceInventoryUI : BasePanel
         isOpen = false;
     }
 
+    #endregion
+
+    #region UI 갱신
+
     /// <summary>
-    /// UI 내용 갱신
+    /// UI 전체를 갱신합니다.
+    /// 기존 행을 모두 제거하고 인벤토리에서 다시 생성합니다.
     /// </summary>
     private void RefreshUI()
     {
@@ -87,7 +107,6 @@ public class ResourceInventoryUI : BasePanel
             Destroy(child.gameObject);
         }
 
-        // 인벤토리에서 아이템 목록 가져오기
         if (InventoryManager.instance == null) return;
 
         List<KeyValuePair<ItemData, int>> items = InventoryManager.instance.GetAllItems();
@@ -116,35 +135,48 @@ public class ResourceInventoryUI : BasePanel
     }
 
     /// <summary>
-    /// 아이템 행 생성
+    /// 아이템 행을 생성합니다.
+    /// 예약된 수량이 있으면 함께 표시합니다.
     /// </summary>
+    /// <param name="itemData">표시할 아이템 데이터</param>
+    /// <param name="count">보유 수량</param>
     private void CreateItemRow(ItemData itemData, int count)
     {
         if (itemData == null) return;
 
         GameObject row = Instantiate(itemRowPrefab, contentContainer);
 
-        // 아이템 이름과 개수 표시
+        int reserved = InventoryManager.instance.GetReservedAmount(itemData);
+
         TextMeshProUGUI[] texts = row.GetComponentsInChildren<TextMeshProUGUI>();
         if (texts.Length > 0)
         {
-            texts[0].text = itemData.itemName; // 아이템 이름
+            texts[0].text = itemData.itemName;
         }
         if (texts.Length > 1)
         {
-            texts[1].text = $"x{count}"; // 개수
+            if (reserved > 0)
+                texts[1].text = $"x{count} ({reserved} 예약됨)";
+            else
+                texts[1].text = $"x{count}";
         }
     }
 
+    #endregion
+
+    #region 이벤트 핸들러
+
     /// <summary>
-    /// 인벤토리 변경 이벤트 핸들러
+    /// 인벤토리 변경 이벤트 핸들러.
+    /// UI가 열려있을 때만 갱신합니다.
     /// </summary>
     private void OnInventoryChanged(ItemData item, int changeAmount)
     {
-        // UI가 열려있을 때만 갱신
         if (isOpen)
         {
             RefreshUI();
         }
     }
+
+    #endregion
 }

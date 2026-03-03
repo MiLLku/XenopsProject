@@ -7,7 +7,7 @@ using UnityEngine;
 public static class SaveMigration
 {
     // 현재 지원하는 최신 버전
-    public const int CURRENT_VERSION = 1;
+    public const int CURRENT_VERSION = 2;
 
     /// <summary>
     /// 세이브 데이터를 현재 버전으로 마이그레이션합니다.
@@ -30,10 +30,9 @@ public static class SaveMigration
                 case 0:
                     data = MigrateV0ToV1(data);
                     break;
-                // 향후 버전 추가 시:
-                // case 1:
-                //     data = MigrateV1ToV2(data);
-                //     break;
+                case 1:
+                    data = MigrateV1ToV2(data);
+                    break;
                 default:
                     Debug.LogError($"[SaveMigration] 알 수 없는 버전: {data.saveVersion}");
                     return null;
@@ -77,15 +76,40 @@ public static class SaveMigration
         return data;
     }
 
-    // 향후 마이그레이션 예시:
-    // private static SaveData MigrateV1ToV2(SaveData data)
-    // {
-    //     Debug.Log("[SaveMigration] v1 → v2 마이그레이션 시작...");
-    //
-    //     // 새로운 필드 초기화
-    //     // data.newField = defaultValue;
-    //
-    //     data.saveVersion = 2;
-    //     return data;
-    // }
+    /// <summary>
+    /// v1 → v2 마이그레이션
+    /// ISaveModule 기반 구조 전환, 예약 데이터 추가
+    /// </summary>
+    private static SaveData MigrateV1ToV2(SaveData data)
+    {
+        Debug.Log("[SaveMigration] v1 → v2 마이그레이션 시작...");
+
+        // InventorySaveData에 예약 필드 추가
+        if (data.inventory != null)
+        {
+            if (data.inventory.reservations == null)
+            {
+                data.inventory.reservations = new System.Collections.Generic.List<ReservationSaveData>();
+            }
+            if (data.inventory.nextReservationId <= 0)
+            {
+                data.inventory.nextReservationId = 1;
+            }
+        }
+
+        // ConstructionSiteSaveData에 reservationId 기본값
+        if (data.constructionSites != null)
+        {
+            foreach (var site in data.constructionSites)
+            {
+                if (site.reservationId == 0)
+                {
+                    site.reservationId = -1;
+                }
+            }
+        }
+
+        data.saveVersion = 2;
+        return data;
+    }
 }

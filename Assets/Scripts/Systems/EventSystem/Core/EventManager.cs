@@ -7,7 +7,7 @@ using UnityEngine;
 /// 이벤트 시스템 관리자
 /// 이벤트 스케줄링, 조건 체크, 발동을 담당합니다.
 /// </summary>
-public class EventManager : DestroySingleton<EventManager>
+public class EventManager : DestroySingleton<EventManager>, ISaveModule
 {
     [Header("이벤트 데이터")]
     [Tooltip("발생 가능한 모든 이벤트")]
@@ -423,19 +423,34 @@ public class EventManager : DestroySingleton<EventManager>
 
     private void ShowEventChoiceUI(EventData eventData)
     {
-        // TODO: UI 시스템과 연동
-        Debug.Log($"[EventManager] 선택지 UI 표시 필요: {eventData.title}");
-
-        // 임시로 첫 번째 선택지 자동 선택
-        if (eventData.choices.Count > 0)
-        {
-            MakeChoice(eventData, 0);
-        }
+        // TODO: UI 시스템과 연동하여 실제 선택지 UI 표시
+        Debug.LogWarning($"[EventManager] 선택지 UI 미구현: {eventData.title} (선택지 {eventData.choices.Count}개 대기 중)");
     }
 
     #endregion
 
-    #region 저장/로드 지원
+    #region ISaveModule 구현
+
+    public int SaveOrder => 80;
+
+    public void Capture(SaveData data)
+    {
+        data.eventSystem = CaptureSaveData();
+    }
+
+    public void Restore(SaveData data)
+    {
+        if (data.eventSystem != null)
+        {
+            RestoreSaveData(data.eventSystem);
+        }
+    }
+
+    public void PostRestore(SaveData data) { }
+
+    #endregion
+
+    #region 저장/로드 지원 (레거시)
 
     /// <summary>
     /// 저장용 데이터 캡처

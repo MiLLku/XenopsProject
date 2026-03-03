@@ -1,28 +1,43 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-
+/// <summary>
+/// UI 패널 등록 데이터.
+/// </summary>
 [System.Serializable]
 public class UIPanelData
 {
+    /// <summary>패널 타입</summary>
     public UIPanelType type;
+
+    /// <summary>패널 컴포넌트</summary>
     public BasePanel panel;
-    public bool alwaysActive; // 항상 떠 있어야 하는 경우 체크
+
+    /// <summary>항상 활성화 상태를 유지하는지 여부</summary>
+    public bool alwaysActive;
 }
 
+/// <summary>
+/// UI 매니저.
+/// 모든 UI 패널을 관리하며, 열기/닫기/토글/팝업 스택 관리를 담당합니다.
+/// </summary>
 public class UIManager : DestroySingleton<UIManager>
 {
     [SerializeField] private List<UIPanelData> uiList;
+
     private Dictionary<UIPanelType, BasePanel> _uiDictionary;
     private List<BasePanel> _activePopupList = new List<BasePanel>();
 
-    private void Start()
+    protected override void Awake()
     {
+        base.Awake();
         InitializeUIDictionary();
     }
 
+    #region 초기화
+
     /// <summary>
-    /// uiList에 있는 패널 데이터 리스트를 딕셔너리에 넣어줌
+    /// 패널 리스트를 딕셔너리로 변환하고 초기 상태를 설정합니다.
     /// </summary>
     private void InitializeUIDictionary()
     {
@@ -40,10 +55,16 @@ public class UIManager : DestroySingleton<UIManager>
         }
     }
 
-    #region 기능
+    #endregion
+
+    #region 조회
+
     /// <summary>
-    /// 특정 패널의 컴포넌트를 가져옴
+    /// 패널 컴포넌트를 타입으로 조회합니다.
     /// </summary>
+    /// <typeparam name="T">패널 타입</typeparam>
+    /// <param name="type">패널 종류</param>
+    /// <returns>패널 컴포넌트 (없으면 null)</returns>
     public T GetPanel<T>(UIPanelType type) where T : BasePanel
     {
         if (_uiDictionary.TryGetValue(type, out BasePanel panel))
@@ -52,9 +73,11 @@ public class UIManager : DestroySingleton<UIManager>
         }
         return null;
     }
+
     /// <summary>
-    /// 특정 패널이 현재 표시 중인지 확인합니다
+    /// 패널이 현재 활성화 상태인지 확인합니다.
     /// </summary>
+    /// <param name="type">확인할 패널 종류</param>
     public bool IsPanelActive(UIPanelType type)
     {
         if (_uiDictionary.TryGetValue(type, out BasePanel panel))
@@ -63,20 +86,23 @@ public class UIManager : DestroySingleton<UIManager>
         }
         return false;
     }
+
     #endregion
-    
-    #region 조작
+
+    #region 패널 조작
+
     /// <summary>
-    /// 특정 패널을 열기
+    /// 패널을 엽니다.
     /// </summary>
+    /// <param name="type">열 패널 종류</param>
+    /// <param name="isPopup">팝업 스택에 추가할지 여부</param>
     public void ShowPanel(UIPanelType type, bool isPopup = true)
     {
         if (_uiDictionary.TryGetValue(type, out BasePanel panel))
         {
             panel.OnOpen();
-            
-            // 팝업이라면 관리 리스트에 추가 (중복 방지)
-            if (isPopup && !_activePopupList.Contains(panel)) 
+
+            if (isPopup && !_activePopupList.Contains(panel))
             {
                 _activePopupList.Add(panel);
             }
@@ -84,9 +110,9 @@ public class UIManager : DestroySingleton<UIManager>
     }
 
     /// <summary>
-    /// 특정 패널을 닫기
-    /// 스택 중간에서 닫힐 경우를 처리함
+    /// 패널을 닫습니다.
     /// </summary>
+    /// <param name="type">닫을 패널 종류</param>
     public void HidePanel(UIPanelType type)
     {
         if (_uiDictionary.TryGetValue(type, out BasePanel panel))
@@ -96,8 +122,10 @@ public class UIManager : DestroySingleton<UIManager>
     }
 
     /// <summary>
-    /// 특정 패널의 표시 상태를 토글
+    /// 패널의 표시 상태를 토글합니다.
     /// </summary>
+    /// <param name="type">토글할 패널 종류</param>
+    /// <param name="isPopup">팝업 스택에 추가할지 여부</param>
     public void TogglePanel(UIPanelType type, bool isPopup = true)
     {
         if (IsPanelActive(type))
@@ -109,23 +137,24 @@ public class UIManager : DestroySingleton<UIManager>
             ShowPanel(type, isPopup);
         }
     }
-    
+
     /// <summary>
-    /// ESC 입력 시 호출될 메서드: 가장 최근에 열린 팝업 하나만 닫음
+    /// 가장 최근에 열린 팝업을 닫습니다 (ESC 입력 시 사용).
     /// </summary>
+    /// <returns>닫힌 팝업이 있으면 true</returns>
     public bool CloseTopPopup()
     {
         if (_activePopupList.Count > 0)
         {
             int lastIndex = _activePopupList.Count - 1;
             BasePanel topPanel = _activePopupList[lastIndex];
-            
+
             topPanel.OnClose();
             _activePopupList.RemoveAt(lastIndex);
             return true;
         }
         return false;
     }
+
     #endregion
-   
 }

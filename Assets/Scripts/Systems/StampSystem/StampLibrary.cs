@@ -1,21 +1,21 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-
+/// <summary>
+/// 스탬프 라이브러리 ScriptableObject.
+/// 등록된 스탬프를 키로 빠르게 조회할 수 있습니다.
+/// </summary>
 [CreateAssetMenu(fileName = "StampLibrary", menuName = "StampSystem/StampLibrary")]
 public class StampLibrary : ScriptableObject
 {
-    // 1. Unity 인스펙터에서 편집하고 저장하기 위한 리스트
     [SerializeField]
     private List<StampData> stampList = new List<StampData>();
 
-    // 2. 게임 실행 중 스탬프를 Key로 빠르게 찾기 위한 딕셔너리 (런타임용)
+    /// <summary>키 기반 빠른 조회용 딕셔너리 (런타임)</summary>
     private Dictionary<string, StampData> _stampLookup;
 
-    // 3. ScriptableObject가 활성화될 때 (게임 시작 시 등) 호출됨
     private void OnEnable()
     {
-        // 리스트를 딕셔너리로 변환하여 검색 속도 최적화
         _stampLookup = new Dictionary<string, StampData>();
         foreach (var stamp in stampList)
         {
@@ -27,16 +27,19 @@ public class StampLibrary : ScriptableObject
     }
 
     /// <summary>
-    /// Key를 이용해 스탬프 데이터를 즉시 찾습니다.
+    /// 키로 스탬프 데이터를 조회합니다.
     /// </summary>
+    /// <param name="key">스탬프 고유 키</param>
+    /// <returns>스탬프 데이터 (없으면 null)</returns>
     public StampData GetStamp(string key)
     {
+        if (_stampLookup == null) OnEnable();
         _stampLookup.TryGetValue(key, out StampData data);
-        return data; // 찾지 못하면 null 반환
+        return data;
     }
 
     /// <summary>
-    /// (에디터용) 라이브러리의 모든 스탬프 리스트를 반환합니다.
+    /// 모든 스탬프 리스트를 반환합니다 (에디터용).
     /// </summary>
     public List<StampData> GetAllStamps()
     {
@@ -44,11 +47,12 @@ public class StampLibrary : ScriptableObject
     }
 
     /// <summary>
-    /// (에디터용) 스탬프 리스트를 통째로 교체합니다.
+    /// 스탬프 리스트를 통째로 교체합니다 (에디터용).
     /// </summary>
+    /// <param name="stamps">새 스탬프 리스트</param>
     public void SetStamps(List<StampData> stamps)
     {
         stampList = stamps;
-        OnEnable(); // 딕셔너리 갱신
+        OnEnable();
     }
 }

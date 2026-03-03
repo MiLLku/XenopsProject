@@ -3,11 +3,22 @@ using System.Collections.Generic;
 using System.Linq;
 
 /// <summary>
-/// 작업물의 시각적 표현 (외곽선 + 라벨)
+/// 작업 명령의 시각적 표현 (외곽선 + 라벨).
+/// 작업 대상 타일들의 외곽선 메시를 생성하고, 진행 상황 라벨을 표시합니다.
 /// </summary>
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer), typeof(BoxCollider2D))]
 public class WorkOrderVisual : MonoBehaviour
 {
+    #region 상수
+
+    private const int OUTLINE_SORTING_ORDER = 100;
+    private const float TILE_HALF_SIZE = 0.5f;
+    private const float LABEL_Y_OFFSET = 1.0f;
+
+    #endregion
+
+    #region 필드
+
     [Header("데이터")]
     [SerializeField] private WorkOrder workOrder;
     [SerializeField] private List<Vector3Int> tilePositions = new List<Vector3Int>();
@@ -26,11 +37,20 @@ public class WorkOrderVisual : MonoBehaviour
     private BoxCollider2D boxCollider;
     private GameObject labelInstance;
     private TMPro.TextMeshProUGUI labelText;
-    
+
     private bool isSelected = false;
     private bool isPendingMode = false;
 
+    #endregion
+
+    #region 프로퍼티
+
+    /// <summary>연결된 작업 명령</summary>
     public WorkOrder WorkOrder => workOrder;
+
+    #endregion
+
+    #region 초기화
 
     void Awake()
     {
@@ -39,12 +59,38 @@ public class WorkOrderVisual : MonoBehaviour
         boxCollider = GetComponent<BoxCollider2D>();
         boxCollider.isTrigger = true;
 
-        meshRenderer.material = new Material(Shader.Find("Sprites/Default"));
+        Shader shader = Shader.Find("Sprites/Default");
+        if (shader != null)
+        {
+            meshRenderer.material = new Material(shader);
+        }
+        else
+        {
+            Debug.LogError("[WorkOrderVisual] Sprites/Default shader not found!");
+        }
+    }
+
+    void OnDestroy()
+    {
+        if (meshRenderer != null && meshRenderer.material != null)
+        {
+            Destroy(meshRenderer.material);
+        }
+        if (meshFilter != null && meshFilter.mesh != null)
+        {
+            Destroy(meshFilter.mesh);
+        }
+        if (labelInstance != null)
+        {
+            Destroy(labelInstance);
+        }
     }
 
     /// <summary>
-    /// 정식 작업물로 초기화할 때 호출
+    /// 정식 작업물로 초기화합니다.
     /// </summary>
+    /// <param name="order">연결할 작업 명령</param>
+    /// <param name="tiles">작업 대상 타일 좌표 목록</param>
     public void Initialize(WorkOrder order, List<Vector3Int> tiles)
     {
         workOrder = order;
@@ -56,24 +102,23 @@ public class WorkOrderVisual : MonoBehaviour
     }
 
     /// <summary>
-    /// 예약 모드에서 타일 목록만 업데이트할 때 호출
+    /// 예약 모드에서 타일 목록만 업데이트합니다.
+    /// 라벨은 표시하지 않습니다.
     /// </summary>
+    /// <param name="newTiles">새 타일 좌표 목록</param>
     public void UpdateTiles(List<Vector3Int> newTiles)
     {
         isPendingMode = true;
         tilePositions = new List<Vector3Int>(newTiles);
-        
+
         RefreshVisuals();
-        
+
         if (labelInstance != null) Destroy(labelInstance);
     }
 
-    private void RefreshVisuals()
-    {
-        GenerateOutlineMesh();
-        UpdateCollider();
-        UpdateColor();
-    }
+    #endregion
+
+    #region 업데이트
 
     void Update()
     {
@@ -86,26 +131,22 @@ public class WorkOrderVisual : MonoBehaviour
         }
 
         UpdateLabel();
-        
-        // 완료된 타일 제거 (시각적 업데이트)
         UpdateTileVisuals();
     }
-    
+
     /// <summary>
-    /// 완료된 타일을 시각적으로 제거
+    /// 완료된 타일을 시각적으로 제거하고 메시를 갱신합니다.
     /// </summary>
     private void UpdateTileVisuals()
     {
         if (workOrder == null || workOrder.taskQueue == null) return;
-        
-        // 현재 남은 작업 타일만 필터링
+
         var remainingTiles = new List<Vector3Int>();
-        
+
         foreach (var tile in tilePositions)
         {
-            // 해당 타일에 대한 작업이 아직 완료되지 않았는지 확인
             bool isCompleted = false;
-            
+
             foreach (var task in workOrder.taskQueue.CompletedTasks)
             {
                 Vector3 taskPos = task.GetPosition();
@@ -115,14 +156,13 @@ public class WorkOrderVisual : MonoBehaviour
                     break;
                 }
             }
-            
+
             if (!isCompleted)
             {
                 remainingTiles.Add(tile);
             }
         }
-        
-        // 변경되었으면 비주얼 업데이트
+
         if (remainingTiles.Count != tilePositions.Count)
         {
             tilePositions = remainingTiles;
@@ -130,6 +170,21 @@ public class WorkOrderVisual : MonoBehaviour
         }
     }
 
+    #endregion
+
+    #region 시각 효과
+
+    private void RefreshVisuals()
+    {
+        GenerateOutlineMesh();
+        UpdateCollider();
+        UpdateColor();
+    }
+
+    /// <summary>
+    /// 타일 경계의 외곽선 메시를 생성합니다.
+    /// 인접한 타일과의 경계만 외곽선을 그립니다.
+    /// </summary>
     private void GenerateOutlineMesh()
     {
         if (tilePositions == null || tilePositions.Count == 0)
@@ -144,7 +199,7 @@ public class WorkOrderVisual : MonoBehaviour
         HashSet<Vector3Int> tileSet = new HashSet<Vector3Int>(tilePositions);
 
         Vector3Int[] directions = { Vector3Int.up, Vector3Int.right, Vector3Int.down, Vector3Int.left };
-        
+
         foreach (var tile in tilePositions)
         {
             for (int i = 0; i < 4; i++)
@@ -159,18 +214,25 @@ public class WorkOrderVisual : MonoBehaviour
         mesh.vertices = vertices.ToArray();
         mesh.triangles = triangles.ToArray();
         mesh.RecalculateBounds();
-        
+
         meshFilter.mesh = mesh;
-        
+
         meshRenderer.sortingLayerName = "Default";
-        meshRenderer.sortingOrder = 100;
+        meshRenderer.sortingOrder = OUTLINE_SORTING_ORDER;
     }
 
+    /// <summary>
+    /// 타일의 한 변에 대한 외곽선 쿼드를 추가합니다.
+    /// </summary>
+    /// <param name="tilePos">타일 좌표</param>
+    /// <param name="dirIndex">방향 인덱스 (0=위, 1=오른쪽, 2=아래, 3=왼쪽)</param>
+    /// <param name="verts">정점 리스트</param>
+    /// <param name="tris">삼각형 인덱스 리스트</param>
     private void AddEdgeMesh(Vector3Int tilePos, int dirIndex, List<Vector3> verts, List<int> tris)
     {
-        Vector3 center = new Vector3(tilePos.x + 0.5f, tilePos.y + 0.5f, 0) - transform.position;
-        
-        float d = 0.5f;
+        Vector3 center = new Vector3(tilePos.x + TILE_HALF_SIZE, tilePos.y + TILE_HALF_SIZE, 0) - transform.position;
+
+        float d = TILE_HALF_SIZE;
         float t = lineWidth;
 
         Vector3[] quad = new Vector3[4];
@@ -205,7 +267,7 @@ public class WorkOrderVisual : MonoBehaviour
 
         int startIndex = verts.Count;
         verts.AddRange(quad);
-        
+
         tris.Add(startIndex + 0); tris.Add(startIndex + 1); tris.Add(startIndex + 2);
         tris.Add(startIndex + 2); tris.Add(startIndex + 1); tris.Add(startIndex + 3);
     }
@@ -219,12 +281,22 @@ public class WorkOrderVisual : MonoBehaviour
         int minY = tilePositions.Min(t => t.y);
         int maxY = tilePositions.Max(t => t.y);
 
-        Vector2 center = new Vector2((minX + maxX) / 2f + 0.5f, (minY + maxY) / 2f + 0.5f);
+        Vector2 center = new Vector2((minX + maxX) / 2f + TILE_HALF_SIZE, (minY + maxY) / 2f + TILE_HALF_SIZE);
         Vector2 size = new Vector2(maxX - minX + 1, maxY - minY + 1);
 
         boxCollider.offset = center - (Vector2)transform.position;
         boxCollider.size = size;
     }
+
+    private void UpdateColor()
+    {
+        Color c = isPendingMode ? pendingColor : (isSelected ? selectedColor : normalColor);
+        if (meshRenderer != null) meshRenderer.material.color = c;
+    }
+
+    #endregion
+
+    #region 라벨
 
     private void CreateLabel()
     {
@@ -235,7 +307,7 @@ public class WorkOrderVisual : MonoBehaviour
             UpdateLabelPos();
         }
     }
-    
+
     private void UpdateLabelPos()
     {
         if (labelInstance != null && tilePositions.Count > 0)
@@ -243,8 +315,8 @@ public class WorkOrderVisual : MonoBehaviour
             int maxY = tilePositions.Max(t => t.y);
             int minX = tilePositions.Min(t => t.x);
             int maxX = tilePositions.Max(t => t.x);
-            
-            Vector3 centerTop = new Vector3((minX + maxX) / 2f + 0.5f, maxY + 1.0f, 0);
+
+            Vector3 centerTop = new Vector3((minX + maxX) / 2f + TILE_HALF_SIZE, maxY + LABEL_Y_OFFSET, 0);
             labelInstance.transform.position = new Vector3(centerTop.x, centerTop.y, 0);
         }
     }
@@ -253,31 +325,28 @@ public class WorkOrderVisual : MonoBehaviour
     {
         if (labelText != null && workOrder != null)
         {
-            // 큐 정보 표시
             int pending = workOrder.taskQueue.PendingCount;
             int assigned = workOrder.taskQueue.AssignedCount;
             int completed = workOrder.taskQueue.CompletedCount;
-            
+
             labelText.text = $"{workOrder.orderName}\n" +
                             $"({workOrder.assignedWorkers.Count}/{workOrder.maxAssignedWorkers})\n" +
                             $"[{completed}/{pending + assigned + completed}]";
         }
     }
-    
-    private void UpdateColor()
-    {
-        Color c = isPendingMode ? pendingColor : (isSelected ? selectedColor : normalColor);
-        if (meshRenderer != null) meshRenderer.material.color = c;
-    }
+
+    #endregion
+
+    #region 상호작용
 
     /// <summary>
-    /// 클릭 시 호출 (InteractionManager에서)
+    /// 클릭 시 호출됩니다 (InteractionManager에서 호출).
+    /// 작업 배정 UI를 표시합니다.
     /// </summary>
     public void OnClicked()
     {
         if (isPendingMode) return;
 
-        // WorkSystemManager를 통해 UI 표시
         if (WorkSystemManager.instance != null)
         {
             isSelected = true;
@@ -285,10 +354,15 @@ public class WorkOrderVisual : MonoBehaviour
             WorkSystemManager.instance.ShowAssignmentUI(workOrder, this);
         }
     }
-    
+
+    /// <summary>
+    /// 선택 해제 시 호출됩니다.
+    /// </summary>
     public void Deselect()
     {
         isSelected = false;
         UpdateColor();
     }
+
+    #endregion
 }

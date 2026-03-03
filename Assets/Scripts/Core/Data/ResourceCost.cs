@@ -1,11 +1,15 @@
 using UnityEngine;
 
+/// <summary>
+/// 자원 비용 데이터.
+/// 건설/제작에 필요한 아이템과 수량을 정의합니다.
+/// </summary>
 [System.Serializable]
 public struct ResourceCost
 {
-    // 어떤 아이템이 필요한지 (예: Stone_ItemData 애셋)
+    /// <summary>필요한 아이템 데이터</summary>
     public ItemData item;
-    
-    // 몇 개가 필요한지
+
+    /// <summary>필요 수량</summary>
     public int amount;
 }

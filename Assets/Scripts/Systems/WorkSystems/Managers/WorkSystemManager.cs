@@ -8,7 +8,7 @@ using System.Linq;
 /// - 직원 등록/할당/작업 완료 처리
 /// - 작업 할당 UI 관리
 /// </summary>
-public class WorkSystemManager : DestroySingleton<WorkSystemManager>
+public class WorkSystemManager : DestroySingleton<WorkSystemManager>, ISaveModule
 {
     #region 직렬화 필드
     
@@ -183,11 +183,14 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>
     /// <summary>
     /// 작업물을 삭제합니다.
     /// </summary>
-    public void RemoveWorkOrder(WorkOrder order)
+    public void RemoveWorkOrder(WorkOrder order, bool isCancellation = true)
     {
         if (order == null) return;
-        
-        order.Cancel();
+
+        if (isCancellation)
+        {
+            order.Cancel();
+        }
         allOrders.Remove(order);
         
         // 비주얼도 삭제
@@ -220,6 +223,35 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>
     }
     
     /// <summary>
+    /// 모든 작업물을 제거합니다 (로드 시 초기화용).
+    /// </summary>
+    public void ClearAllOrders()
+    {
+        foreach (var order in allOrders.ToList())
+        {
+            order.Cancel();
+        }
+        allOrders.Clear();
+
+        foreach (var visual in orderVisuals.Values)
+        {
+            if (visual != null)
+            {
+                Destroy(visual.gameObject);
+            }
+        }
+        orderVisuals.Clear();
+        employeeToOrderMap.Clear();
+        employeeToTaskMap.Clear();
+        nextOrderId = 1;
+
+        if (showDebugInfo)
+        {
+            Debug.Log("[WorkSystemManager] 모든 작업물 초기화 완료");
+        }
+    }
+
+    /// <summary>
     /// 완료된 작업물을 자동으로 제거합니다.
     /// </summary>
     public void CleanupCompletedOrders()
@@ -232,10 +264,10 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>
             {
                 Debug.Log($"[WorkSystemManager] 작업물 완료: {order.orderName}");
             }
-            RemoveWorkOrder(order);
+            RemoveWorkOrder(order, isCancellation: false);
         }
     }
-    
+
     /// <summary>
     /// 유효하지 않은 작업 정리
     /// </summary>
@@ -484,10 +516,10 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>
             employeeToOrderMap.Remove(worker);
             employeeToTaskMap.Remove(worker);
             
-            RemoveWorkOrder(order);
+            RemoveWorkOrder(order, isCancellation: false);
             return;
         }
-        
+
         // 같은 작업물에서 다음 작업 할당 (큐에서)
         if (showDebugInfo)
         {
@@ -512,7 +544,8 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>
                 Vector2Int groundTile = new Vector2Int(footTile.x, footTile.y - 1);
                 var gameMap = MapGenerator.instance?.GameMapInstance;
                 
-                if (gameMap != null && groundTile.y >= 0)
+                if (gameMap != null && groundTile.y >= 0 &&
+                    groundTile.x >= 0 && groundTile.x < GameMap.MAP_WIDTH)
                 {
                     int groundTileId = gameMap.TileGrid[groundTile.x, groundTile.y];
                     bool hasFloor = FloorTile.HasFloorTileAt(groundTile);
@@ -751,11 +784,458 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>
     #endregion
     
     #region Public 프로퍼티
-    
+
     public List<WorkOrder> AllOrders => allOrders;
     public int ActiveOrderCount => allOrders.Count(o => o.isActive && !o.isPaused);
     public List<Employee> AllEmployees => allEmployees;
     public List<Employee> IdleEmployees => allEmployees.Where(e => e.State == EmployeeState.Idle).ToList();
-    
+
+    #endregion
+
+    #region ISaveModule 구현
+
+    public int SaveOrder => 60;
+
+    public void Capture(SaveData data)
+    {
+        data.workOrders = new List<WorkOrderSaveData>();
+        data.nextOrderId = nextOrderId;
+        data.nextTaskId = WorkTask.NextTaskId;
+
+        foreach (var order in allOrders)
+        {
+            if (!order.isActive) continue;
+
+            var orderData = new WorkOrderSaveData
+            {
+                orderId = order.orderId,
+                orderName = order.orderName,
+                workType = (int)order.workType,
+                priority = order.priority,
+                createdTime = order.createdTime,
+                maxWorkers = order.maxAssignedWorkers,
+                isActive = order.isActive,
+                isPaused = order.isPaused
+            };
+
+            // 배정된 직원 ID
+            foreach (var worker in order.assignedWorkers)
+            {
+                if (worker != null)
+                    orderData.assignedWorkerIds.Add(worker.InstanceId);
+            }
+
+            // 대기 작업 직렬화
+            foreach (var task in order.taskQueue.PendingTasks)
+            {
+                var taskData = SerializeWorkTask(task, order);
+                if (taskData != null)
+                    orderData.pendingTasks.Add(taskData);
+            }
+
+            // 진행 중 작업 직렬화
+            foreach (var task in order.taskQueue.AssignedTasks)
+            {
+                var taskData = SerializeWorkTask(task, order);
+                if (taskData != null)
+                    orderData.assignedTasks.Add(taskData);
+            }
+
+            data.workOrders.Add(orderData);
+        }
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[WorkSystemManager] Capture: {data.workOrders.Count}개 작업물 저장");
+        }
+    }
+
+    public void Restore(SaveData data)
+    {
+        ClearAllOrders();
+
+        if (data.workOrders == null || data.workOrders.Count == 0) return;
+
+        foreach (var orderData in data.workOrders)
+        {
+            WorkOrder order;
+
+            // CraftingOrder 특수 처리
+            if ((WorkType)orderData.workType == WorkType.Crafting)
+            {
+                order = RestoreCraftingOrder(orderData);
+                if (order == null) continue;
+            }
+            else
+            {
+                order = new WorkOrder
+                {
+                    orderId = orderData.orderId,
+                    orderName = orderData.orderName,
+                    workType = (WorkType)orderData.workType,
+                    priority = orderData.priority,
+                    createdTime = orderData.createdTime,
+                    maxAssignedWorkers = orderData.maxWorkers,
+                    isActive = orderData.isActive,
+                    isPaused = orderData.isPaused
+                };
+
+                // 대기 작업 복원
+                foreach (var taskData in orderData.pendingTasks)
+                {
+                    IWorkTarget target = DeserializeWorkTarget(taskData);
+                    if (target == null) continue;
+
+                    WorkTask task = new WorkTask(target, taskData.priority);
+                    task.taskId = taskData.taskId;
+                    task.createdTime = taskData.createdTime;
+                    order.taskQueue.Enqueue(task);
+                }
+
+                // 진행 중 작업 → 대기로 복원 (PostRestore에서 재할당)
+                foreach (var taskData in orderData.assignedTasks)
+                {
+                    IWorkTarget target = DeserializeWorkTarget(taskData);
+                    if (target == null) continue;
+
+                    WorkTask task = new WorkTask(target, taskData.priority);
+                    task.taskId = taskData.taskId;
+                    task.createdTime = taskData.createdTime;
+                    order.taskQueue.Enqueue(task);
+                }
+            }
+
+            allOrders.Add(order);
+        }
+
+        // 카운터 복원
+        nextOrderId = data.nextOrderId > 0 ? data.nextOrderId : CalcNextOrderId();
+        WorkTask.SetNextTaskId(data.nextTaskId > 0 ? data.nextTaskId : CalcNextTaskId());
+
+        if (showDebugInfo)
+        {
+            Debug.Log($"[WorkSystemManager] Restore: {allOrders.Count}개 작업물 복원, nextOrderId={nextOrderId}");
+        }
+    }
+
+    public void PostRestore(SaveData data)
+    {
+        if (data.workOrders == null) return;
+
+        var registry = RuntimeIDRegistry.instance;
+        if (registry == null) return;
+
+        // 작업물별 직원 재할당
+        foreach (var orderData in data.workOrders)
+        {
+            var order = allOrders.FirstOrDefault(o => o.orderId == orderData.orderId);
+            if (order == null) continue;
+
+            foreach (int workerId in orderData.assignedWorkerIds)
+            {
+                if (workerId <= 0) continue;
+
+                Employee emp = registry.ResolveComponent<Employee>(workerId);
+                if (emp == null)
+                {
+                    Debug.LogWarning($"[WorkSystemManager] PostRestore: 직원 ID {workerId} 찾을 수 없음");
+                    continue;
+                }
+
+                // 직원 등록 (Start에서 이미 했을 수 있지만 안전 확인)
+                if (!allEmployees.Contains(emp))
+                    allEmployees.Add(emp);
+
+                // 작업물에 직원 배정 + 작업 할당
+                order.assignedWorkers.Add(emp);
+                employeeToOrderMap[emp] = order;
+
+                // 큐에서 작업 할당 시도
+                WorkTask task = order.AssignNextTaskToWorker(emp);
+                if (task != null)
+                {
+                    employeeToTaskMap[emp] = task;
+                    task.Start();
+                    emp.AssignWork(order, task.target);
+
+                    if (showDebugInfo)
+                    {
+                        Debug.Log($"[WorkSystemManager] PostRestore: {emp.Data.employeeName} → {order.orderName} 재할당");
+                    }
+                }
+            }
+
+            // BuildOrder ↔ ConstructionSite 연결
+            LinkBuildOrdersToConstructionSites(order, orderData, registry);
+        }
+    }
+
+    #endregion
+
+    #region ISaveModule 헬퍼
+
+    /// <summary>WorkTask를 WorkTaskSaveData로 직렬화합니다.</summary>
+    private WorkTaskSaveData SerializeWorkTask(WorkTask task, WorkOrder order)
+    {
+        if (task == null || task.target == null) return null;
+
+        var taskData = new WorkTaskSaveData
+        {
+            taskId = task.taskId,
+            state = (int)task.state,
+            priority = task.priority,
+            assignedWorkerId = task.assignedWorker != null ? task.assignedWorker.InstanceId : -1,
+            createdTime = task.createdTime,
+            assignedTime = task.assignedTime,
+            startedTime = task.startedTime
+        };
+
+        // IWorkTarget 다형 직렬화
+        if (task.target is CraftingOrder crafting)
+        {
+            taskData.targetType = (int)WorkTargetType.Crafting;
+            taskData.targetData = JsonUtility.ToJson(new CraftingTargetData
+            {
+                recipeId = crafting.recipe != null ? crafting.recipe.recipeID : -1,
+                craftAmount = crafting.craftAmount,
+                craftingProgress = crafting.CraftingProgress,
+                buildingInstanceId = crafting.building != null ? crafting.building.InstanceId : -1,
+                reservationId = crafting.ReservationId
+            });
+        }
+        else if (task.target is MiningOrder mining)
+        {
+            taskData.targetType = (int)WorkTargetType.Mining;
+            taskData.targetData = JsonUtility.ToJson(new MiningTargetData
+            {
+                tileX = mining.position.x,
+                tileY = mining.position.y,
+                tileId = mining.tileID
+            });
+        }
+        else if (task.target is BuildOrder build)
+        {
+            taskData.targetType = (int)WorkTargetType.Build;
+            taskData.targetData = JsonUtility.ToJson(new BuildTargetData
+            {
+                constructionSiteId = build.constructionSite != null ? build.constructionSite.InstanceId : -1
+            });
+        }
+        else if (task.target is HarvestOrder harvest)
+        {
+            taskData.targetType = (int)WorkTargetType.Harvest;
+            taskData.targetData = JsonUtility.ToJson(new HarvestTargetData
+            {
+                entityX = Mathf.FloorToInt(harvest.position.x),
+                entityY = Mathf.FloorToInt(harvest.position.y),
+                entityType = 0
+            });
+        }
+        else if (task.target is DemolishOrder demolish)
+        {
+            taskData.targetType = (int)WorkTargetType.Demolish;
+            taskData.targetData = JsonUtility.ToJson(new DemolishTargetData
+            {
+                buildingInstanceId = demolish.building != null ? demolish.building.InstanceId : -1
+            });
+        }
+        else
+        {
+            Debug.LogWarning($"[WorkSystemManager] 알 수 없는 IWorkTarget 타입: {task.target.GetType().Name}");
+            return null;
+        }
+
+        return taskData;
+    }
+
+    /// <summary>WorkTaskSaveData에서 IWorkTarget을 역직렬화합니다.</summary>
+    private IWorkTarget DeserializeWorkTarget(WorkTaskSaveData taskData)
+    {
+        var targetType = (WorkTargetType)taskData.targetType;
+
+        switch (targetType)
+        {
+            case WorkTargetType.Mining:
+            {
+                var td = JsonUtility.FromJson<MiningTargetData>(taskData.targetData);
+                return new MiningOrder
+                {
+                    position = new Vector3Int(td.tileX, td.tileY, 0),
+                    tileID = td.tileId,
+                    completed = false
+                };
+            }
+
+            case WorkTargetType.Build:
+            {
+                var td = JsonUtility.FromJson<BuildTargetData>(taskData.targetData);
+                // ConstructionSite는 이미 ConstructionManager(SaveOrder=30)에서 복원됨
+                var site = RuntimeIDRegistry.instance?.ResolveComponent<ConstructionSite>(td.constructionSiteId);
+                if (site == null)
+                {
+                    Debug.LogWarning($"[WorkSystemManager] BuildOrder 복원 실패: ConstructionSite ID {td.constructionSiteId} 없음");
+                    return null;
+                }
+                return new BuildOrder
+                {
+                    constructionSite = site,
+                    buildingData = site.BuildingData,
+                    position = site.transform.position,
+                    completed = false
+                };
+            }
+
+            case WorkTargetType.Harvest:
+            {
+                var td = JsonUtility.FromJson<HarvestTargetData>(taskData.targetData);
+                // 위치 기반으로 IHarvestable 검색
+                IHarvestable harvestable = FindHarvestableAtPosition(td.entityX, td.entityY);
+                if (harvestable == null)
+                {
+                    Debug.LogWarning($"[WorkSystemManager] HarvestOrder 복원 실패: ({td.entityX}, {td.entityY}) 에 수확 대상 없음");
+                    return null;
+                }
+                return new HarvestOrder
+                {
+                    target = harvestable,
+                    position = new Vector3(td.entityX, td.entityY, 0),
+                    completed = false
+                };
+            }
+
+            case WorkTargetType.Demolish:
+            {
+                var td = JsonUtility.FromJson<DemolishTargetData>(taskData.targetData);
+                var building = RuntimeIDRegistry.instance?.ResolveComponent<Building>(td.buildingInstanceId);
+                if (building == null)
+                {
+                    Debug.LogWarning($"[WorkSystemManager] DemolishOrder 복원 실패: Building ID {td.buildingInstanceId} 없음");
+                    return null;
+                }
+                return new DemolishOrder
+                {
+                    building = building,
+                    position = building.transform.position,
+                    completed = false
+                };
+            }
+
+            case WorkTargetType.Crafting:
+                // CraftingOrder는 RestoreCraftingOrder에서 처리
+                return null;
+
+            default:
+                Debug.LogWarning($"[WorkSystemManager] 알 수 없는 WorkTargetType: {targetType}");
+                return null;
+        }
+    }
+
+    /// <summary>CraftingOrder를 복원합니다.</summary>
+    private CraftingOrder RestoreCraftingOrder(WorkOrderSaveData orderData)
+    {
+        // CraftingOrder의 작업 데이터 찾기 (pending 또는 assigned에 Crafting 타입이 있음)
+        WorkTaskSaveData craftTaskData = null;
+        foreach (var t in orderData.pendingTasks)
+        {
+            if ((WorkTargetType)t.targetType == WorkTargetType.Crafting) { craftTaskData = t; break; }
+        }
+        if (craftTaskData == null)
+        {
+            foreach (var t in orderData.assignedTasks)
+            {
+                if ((WorkTargetType)t.targetType == WorkTargetType.Crafting) { craftTaskData = t; break; }
+            }
+        }
+
+        if (craftTaskData == null)
+        {
+            Debug.LogWarning($"[WorkSystemManager] CraftingOrder 복원 실패: 작업 데이터 없음 (Order: {orderData.orderName})");
+            return null;
+        }
+
+        var craftData = JsonUtility.FromJson<CraftingTargetData>(craftTaskData.targetData);
+        var recipe = GameDatabase.Instance?.GetRecipeData(craftData.recipeId);
+        if (recipe == null)
+        {
+            Debug.LogWarning($"[WorkSystemManager] CraftingOrder 복원 실패: 레시피 ID {craftData.recipeId} 없음");
+            return null;
+        }
+
+        var building = RuntimeIDRegistry.instance?.ResolveComponent<ProductionBuilding>(craftData.buildingInstanceId);
+
+        return CraftingOrder.CreateForRestore(orderData, craftData, recipe, building);
+    }
+
+    /// <summary>위치 기반으로 IHarvestable 오브젝트를 검색합니다.</summary>
+    private IHarvestable FindHarvestableAtPosition(int x, int y)
+    {
+        // 씬 내 모든 IHarvestable 검색
+        var allHarvestables = Object.FindObjectsOfType<MonoBehaviour>();
+        foreach (var mb in allHarvestables)
+        {
+            if (!(mb is IHarvestable harvestable)) continue;
+
+            Vector2Int pos = new Vector2Int(
+                Mathf.FloorToInt(mb.transform.position.x),
+                Mathf.FloorToInt(mb.transform.position.y)
+            );
+
+            if (pos.x == x && pos.y == y && harvestable.CanHarvest())
+            {
+                return harvestable;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>BuildOrder가 있는 작업물에서 ConstructionSite와 연결합니다.</summary>
+    private void LinkBuildOrdersToConstructionSites(WorkOrder order, WorkOrderSaveData orderData, RuntimeIDRegistry registry)
+    {
+        // 작업 내 BuildOrder가 있으면 ConstructionSite에 WorkOrder 연결
+        foreach (var task in order.taskQueue.PendingTasks)
+        {
+            if (task.target is BuildOrder buildOrder && buildOrder.constructionSite != null)
+            {
+                buildOrder.constructionSite.SetWorkOrder(order);
+            }
+        }
+        foreach (var task in order.taskQueue.AssignedTasks)
+        {
+            if (task.target is BuildOrder buildOrder && buildOrder.constructionSite != null)
+            {
+                buildOrder.constructionSite.SetWorkOrder(order);
+            }
+        }
+    }
+
+    /// <summary>allOrders에서 최대 orderId를 기반으로 다음 ID를 계산합니다.</summary>
+    private int CalcNextOrderId()
+    {
+        int maxId = 0;
+        foreach (var o in allOrders)
+        {
+            if (o.orderId > maxId) maxId = o.orderId;
+        }
+        return maxId + 1;
+    }
+
+    /// <summary>전체 작업에서 최대 taskId를 기반으로 다음 ID를 계산합니다.</summary>
+    private int CalcNextTaskId()
+    {
+        int maxId = 0;
+        foreach (var order in allOrders)
+        {
+            foreach (var task in order.taskQueue.PendingTasks)
+            {
+                if (task.taskId > maxId) maxId = task.taskId;
+            }
+            foreach (var task in order.taskQueue.AssignedTasks)
+            {
+                if (task.taskId > maxId) maxId = task.taskId;
+            }
+        }
+        return maxId + 1;
+    }
+
     #endregion
 }

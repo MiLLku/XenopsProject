@@ -1,6 +1,11 @@
 using UnityEngine;
 using System.Collections.Generic;
 
+/// <summary>
+/// 수확 가능한 식물.
+/// 성장 단계별 스프라이트를 지원하며, 수확 후 재성장이 가능합니다.
+/// IHarvestable, IWorkTarget을 구현하여 작업 시스템과 연동됩니다.
+/// </summary>
 public class HarvestablePlant : MonoBehaviour, IHarvestable, IWorkTarget
 {
     [Header("식물 설정")]
@@ -22,6 +27,9 @@ public class HarvestablePlant : MonoBehaviour, IHarvestable, IWorkTarget
     private bool isHarvestable = false;
     private bool isRegrowing = false;
     private bool isBeingHarvested = false;
+
+    /// <summary>성장 진행도 (0~1)</summary>
+    public float GrowthProgress => growthTime > 0 ? Mathf.Clamp01(currentGrowth / growthTime) : 1f;
     
     [System.Serializable]
     public class HarvestYield
@@ -248,8 +256,8 @@ public class HarvestablePlant : MonoBehaviour, IHarvestable, IWorkTarget
     
     public void CompleteWork(Employee worker)
     {
+        isBeingHarvested = true;
         Harvest();
-        isBeingHarvested = false;
     }
     
     public void CancelWork(Employee worker)

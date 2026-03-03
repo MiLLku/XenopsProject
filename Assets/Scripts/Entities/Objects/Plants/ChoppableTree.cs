@@ -1,5 +1,10 @@
 using UnityEngine;
 
+/// <summary>
+/// 벌목 가능한 나무.
+/// 성장 단계(묘목→어린 나무→성목)를 거치며, 다 자란 나무만 벌목할 수 있습니다.
+/// IHarvestable, IWorkTarget을 구현하여 작업 시스템과 연동됩니다.
+/// </summary>
 public class ChoppableTree : MonoBehaviour, IHarvestable, IWorkTarget
 {
     [Header("나무 설정")]
@@ -21,7 +26,13 @@ public class ChoppableTree : MonoBehaviour, IHarvestable, IWorkTarget
     private float currentGrowth = 0f;
     private bool isFullyGrown = false;
     private bool isBeingChopped = false;
-    
+
+    /// <summary>성장 진행도 (0~1)</summary>
+    public float GrowthProgress => growthTime > 0 ? Mathf.Clamp01(currentGrowth / growthTime) : 1f;
+
+    /// <summary>다 자란 상태인지</summary>
+    public bool IsFullyGrown => isFullyGrown;
+
     private enum TreeStage
     {
         Seedling,   // 묘목
@@ -175,6 +186,7 @@ public class ChoppableTree : MonoBehaviour, IHarvestable, IWorkTarget
     
     public void CompleteWork(Employee worker)
     {
+        isBeingChopped = true;
         Harvest();
     }
     

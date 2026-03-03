@@ -1,12 +1,16 @@
 using UnityEngine;
 
 /// <summary>
-/// 게임 내 모든 ID를 중앙 관리하는 레지스트리
-/// ScriptableObject 생성 시 참고용
+/// 게임 내 모든 ID를 중앙 관리하는 레지스트리.
+/// ScriptableObject 생성 시 ID 범위를 참고하여 충돌을 방지합니다.
+///
+/// ID 범위:
+///   타일(1000~1999), 아이템(2000~2999), 건물(3000~3999),
+///   직원(4000~4999), 레시피(5000~5999)
 /// </summary>
 public static class GameIDRegistry
 {
-    // ===== ID 범위 정의 =====
+    #region 타일 ID (1000~1999)
 
     /// <summary>
     /// 타일 ID 범위 (1000~1999)
@@ -20,12 +24,15 @@ public static class GameIDRegistry
         public const int COAL = 1004;
         public const int WOOD_TILE = 1005;
 
-        // 범위 체크
         public const int MIN = 1000;
         public const int MAX = 1999;
 
         public static bool IsValid(int id) => id >= MIN && id <= MAX;
     }
+
+    #endregion
+
+    #region 아이템 ID (2000~2999)
 
     /// <summary>
     /// 아이템 ID 범위 (2000~2999)
@@ -63,12 +70,15 @@ public static class GameIDRegistry
         public const int MANA_POTION = 2401;
         public const int STAMINA_POTION = 2402;
 
-        // 범위 체크
         public const int MIN = 2000;
         public const int MAX = 2999;
 
         public static bool IsValid(int id) => id >= MIN && id <= MAX;
     }
+
+    #endregion
+
+    #region 건물 ID (3000~3999)
 
     /// <summary>
     /// 건물 ID 범위 (3000~3999)
@@ -99,12 +109,35 @@ public static class GameIDRegistry
         public const int BARN = 3301;
         public const int GREENHOUSE = 3302;
 
-        // 범위 체크
         public const int MIN = 3000;
         public const int MAX = 3999;
 
         public static bool IsValid(int id) => id >= MIN && id <= MAX;
     }
+
+    #endregion
+
+    #region 직원 ID (4000~4999)
+
+    /// <summary>
+    /// 직원/유닛 ID 범위 (4000~4999)
+    /// </summary>
+    public static class Employees
+    {
+        public const int WORKER = 4000;
+        public const int BUILDER = 4001;
+        public const int MINER = 4002;
+        public const int FARMER = 4003;
+
+        public const int MIN = 4000;
+        public const int MAX = 4999;
+
+        public static bool IsValid(int id) => id >= MIN && id <= MAX;
+    }
+
+    #endregion
+
+    #region 레시피 ID (5000~5999)
 
     /// <summary>
     /// 레시피 ID 범위 (5000~5999)
@@ -131,35 +164,21 @@ public static class GameIDRegistry
         public const int MANA_POTION = 5401;
         public const int STAMINA_POTION = 5402;
 
-        // 범위 체크
         public const int MIN = 5000;
         public const int MAX = 5999;
 
         public static bool IsValid(int id) => id >= MIN && id <= MAX;
     }
 
-    /// <summary>
-    /// 직원/유닛 ID 범위 (4000~4999)
-    /// </summary>
-    public static class Employees
-    {
-        public const int WORKER = 4000;
-        public const int BUILDER = 4001;
-        public const int MINER = 4002;
-        public const int FARMER = 4003;
+    #endregion
 
-        // 범위 체크
-        public const int MIN = 4000;
-        public const int MAX = 4999;
-
-        public static bool IsValid(int id) => id >= MIN && id <= MAX;
-    }
-
-    // ===== 유틸리티 메서드 =====
+    #region 유틸리티
 
     /// <summary>
-    /// ID가 어떤 타입에 속하는지 확인
+    /// ID가 어떤 타입에 속하는지 문자열로 반환합니다.
     /// </summary>
+    /// <param name="id">확인할 ID</param>
+    /// <returns>타입 문자열 (Tile, Item, Building, Employee, Recipe, Unknown)</returns>
     public static string GetIDType(int id)
     {
         if (Tiles.IsValid(id)) return "Tile";
@@ -172,8 +191,11 @@ public static class GameIDRegistry
     }
 
     /// <summary>
-    /// ID 범위가 겹치는지 검사
+    /// ID가 유효한 범위에 속하는지 검증합니다.
     /// </summary>
+    /// <param name="id">검증할 ID</param>
+    /// <param name="errorMessage">유효하지 않은 경우 에러 메시지</param>
+    /// <returns>유효한 경우 true</returns>
     public static bool ValidateID(int id, out string errorMessage)
     {
         string type = GetIDType(id);
@@ -189,7 +211,7 @@ public static class GameIDRegistry
     }
 
     /// <summary>
-    /// 다음 사용 가능한 ID 추천 (디버그용)
+    /// 각 ID 범위의 사용 가능 범위를 콘솔에 출력합니다 (디버그용).
     /// </summary>
     public static void LogNextAvailableIDs()
     {
@@ -200,4 +222,6 @@ public static class GameIDRegistry
         Debug.Log($"직원 (Employee): {Employees.MIN} ~ {Employees.MAX}");
         Debug.Log($"레시피 (Recipe): {Recipes.MIN} ~ {Recipes.MAX}");
     }
+
+    #endregion
 }

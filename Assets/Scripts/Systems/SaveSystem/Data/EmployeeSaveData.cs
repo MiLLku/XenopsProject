@@ -2,59 +2,123 @@ using System;
 using System.Collections.Generic;
 
 /// <summary>
-/// 직원 저장 데이터
+/// 직원 저장 데이터.
 ///
 /// 직원 유형:
-/// - 유니크 직원: isUnique=true, 템플릿 기반 + 성장 시스템
-/// - 일반 직원: isUnique=false, 랜덤 생성 (추후 구현)
+///   유니크 직원(isUnique=true): 템플릿 기반 + 성장 시스템
+///   일반 직원(isUnique=false): 랜덤 생성 (추후 구현)
 /// </summary>
 [Serializable]
 public class EmployeeSaveData
 {
-    // ===== 식별 =====
-    public int instanceId;          // 런타임 고유 ID
-    public int templateId;          // EmployeeData ScriptableObject ID (외형/프리팹용)
-    public bool isUnique;           // 유니크 직원 여부
+    #region 식별
 
-    // ===== 기본 정보 =====
-    public string customName;       // 커스텀 이름 (null이면 템플릿 이름 사용)
+    /// <summary>런타임 고유 ID</summary>
+    public int instanceId;
 
-    // ===== 위치 =====
+    /// <summary>EmployeeData ScriptableObject ID (외형/프리팹용)</summary>
+    public int templateId;
+
+    /// <summary>유니크 직원 여부</summary>
+    public bool isUnique;
+
+    #endregion
+
+    #region 기본 정보
+
+    /// <summary>커스텀 이름 (null이면 템플릿 이름 사용)</summary>
+    public string customName;
+
+    #endregion
+
+    #region 위치
+
+    /// <summary>월드 X 좌표</summary>
     public float posX;
+
+    /// <summary>월드 Y 좌표</summary>
     public float posY;
 
-    // ===== 상태 =====
-    public int state;               // EmployeeState enum
+    #endregion
 
-    // ===== 성장 시스템 (유니크 직원 전용) =====
+    #region 상태
+
+    /// <summary>직원 상태 (EmployeeState enum)</summary>
+    public int state;
+
+    #endregion
+
+    #region 성장 시스템
+
+    /// <summary>현재 레벨</summary>
     public int level;
+
+    /// <summary>현재 경험치</summary>
     public int experience;
+
+    /// <summary>다음 레벨까지 필요 경험치</summary>
     public int experienceToNextLevel;
 
-    // ===== 현재 스탯 (성장 반영된 실제 값) =====
-    public int maxHealth;           // 템플릿 기본값 + 성장치
+    #endregion
+
+    #region 스탯
+
+    /// <summary>최대 체력 (템플릿 기본값 + 성장치)</summary>
+    public int maxHealth;
+
+    /// <summary>현재 체력</summary>
     public int currentHealth;
+
+    /// <summary>최대 멘탈</summary>
     public int maxMental;
+
+    /// <summary>현재 멘탈</summary>
     public int currentMental;
+
+    /// <summary>공격력</summary>
     public int attackPower;
 
-    // ===== 욕구 =====
+    #endregion
+
+    #region 욕구
+
+    /// <summary>배고픔 (0~100, 낮을수록 배고픔)</summary>
     public float hunger;
+
+    /// <summary>피로 (0~100, 낮을수록 피곤함)</summary>
     public float fatigue;
 
-    // ===== 작업 능력 (성장으로 변경 가능) =====
+    #endregion
+
+    #region 작업
+
+    /// <summary>작업 능력 데이터</summary>
     public WorkAbilitiesSaveData abilities;
 
-    // ===== 작업 설정 =====
+    /// <summary>작업 우선순위 목록</summary>
     public List<WorkPrioritySaveData> workPriorities;
 
-    // ===== 현재 작업 (연결용) =====
-    public int assignedWorkOrderId; // -1이면 없음
+    /// <summary>배정된 작업 명령 ID (-1이면 없음)</summary>
+    public int assignedWorkOrderId;
+
+    /// <summary>동적 비자격 작업 타입 목록 (WorkType int 값)</summary>
+    public List<int> disqualifiedWorkTypes;
+
+    #endregion
+
+    #region 정신 이벤트
+
+    /// <summary>활성 정신 이벤트 목록</summary>
+    public List<MentalEventSaveData> activeMentalEvents;
+
+    #endregion
 
     public EmployeeSaveData()
     {
         assignedWorkOrderId = -1;
         workPriorities = new List<WorkPrioritySaveData>();
+        disqualifiedWorkTypes = new List<int>();
+        activeMentalEvents = new List<MentalEventSaveData>();
         level = 1;
         experience = 0;
         experienceToNextLevel = 100;
@@ -62,13 +126,14 @@ public class EmployeeSaveData
 }
 
 /// <summary>
-/// 작업 능력 저장 데이터
-/// 유니크 직원은 성장에 따라 변경될 수 있음
+/// 작업 능력 저장 데이터.
+/// 유니크 직원은 성장에 따라 작업 속도가 변경될 수 있습니다.
 /// </summary>
 [Serializable]
 public class WorkAbilitiesSaveData
 {
-    // 작업 가능 여부
+    #region 작업 가능 여부
+
     public bool canMine;
     public bool canChop;
     public bool canResearch;
@@ -78,7 +143,10 @@ public class WorkAbilitiesSaveData
     public bool canHaul;
     public bool canDemolish;
 
-    // 작업 속도 (성장으로 향상 가능)
+    #endregion
+
+    #region 작업 속도
+
     public float miningSpeed;
     public float choppingSpeed;
     public float researchSpeed;
@@ -87,6 +155,8 @@ public class WorkAbilitiesSaveData
     public float buildingSpeed;
     public float haulingSpeed;
     public float demolishSpeed;
+
+    #endregion
 
     public WorkAbilitiesSaveData()
     {
@@ -101,8 +171,10 @@ public class WorkAbilitiesSaveData
     }
 
     /// <summary>
-    /// WorkAbilities에서 복사
+    /// WorkAbilities에서 저장 데이터로 변환합니다.
     /// </summary>
+    /// <param name="source">원본 WorkAbilities</param>
+    /// <returns>저장 데이터</returns>
     public static WorkAbilitiesSaveData FromWorkAbilities(WorkAbilities source)
     {
         if (source == null) return new WorkAbilitiesSaveData();
@@ -129,8 +201,9 @@ public class WorkAbilitiesSaveData
     }
 
     /// <summary>
-    /// WorkAbilities로 변환
+    /// 저장 데이터를 WorkAbilities로 변환합니다.
     /// </summary>
+    /// <returns>WorkAbilities 인스턴스</returns>
     public WorkAbilities ToWorkAbilities()
     {
         return new WorkAbilities
@@ -156,12 +229,17 @@ public class WorkAbilitiesSaveData
 }
 
 /// <summary>
-/// 작업 우선순위 저장 데이터
+/// 작업 우선순위 저장 데이터.
 /// </summary>
 [Serializable]
 public class WorkPrioritySaveData
 {
-    public int workType;    // WorkType enum
-    public int priority;    // 1-9, 0=비활성
+    /// <summary>작업 타입 (WorkType enum)</summary>
+    public int workType;
+
+    /// <summary>우선순위 (1~9, 0이면 비활성)</summary>
+    public int priority;
+
+    /// <summary>활성화 여부</summary>
     public bool enabled;
 }

@@ -1,10 +1,17 @@
-using UnityEngine;
-
+/// <summary>
+/// 건물 카테고리 열거형.
+/// 빌드 메뉴에서의 정렬 및 분류에 사용됩니다.
+/// </summary>
 public enum BuildingCategory
 {
-    Storage,      // 보관 (상자)
-    Production,   // 생산 (작업대, 용광로)
-    Furniture,    // 가구
-    Infrastructure, // 기반시설 (벽, 바닥)
-    Special       // 특수
+    /// <summary>보관 (상자)</summary>
+    Storage,
+    /// <summary>생산 (작업대, 용광로)</summary>
+    Production,
+    /// <summary>가구</summary>
+    Furniture,
+    /// <summary>기반시설 (벽, 바닥)</summary>
+    Infrastructure,
+    /// <summary>특수</summary>
+    Special
 }

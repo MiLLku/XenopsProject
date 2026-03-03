@@ -1,9 +1,14 @@
-// --- 파일 8: MapGenerator.cs (RESERVED_ID 제거 및 OccupiedGrid 사용) ---
+using System.Collections.Generic;
 using UnityEngine;
 
-
+/// <summary>
+/// 절차적 맵 생성기.
+/// Perlin Noise를 사용하여 200x200 타일 맵을 생성합니다.
+/// 지형(언덕, 동굴, 광맥), 자연물(나무, 식물), 스탬프 배치를 담당합니다.
+/// ISaveModule을 구현하여 맵 타일 + 자연물 상태를 저장/복원합니다.
+/// </summary>
 [RequireComponent(typeof(MapRenderer))]
-public class MapGenerator : DestroySingleton<MapGenerator>
+public class MapGenerator : DestroySingleton<MapGenerator>, ISaveModule
 {
     // ... (모든 인스펙터 변수는 변경 없음) ...
     [Header("필수 연결")]
@@ -351,4 +356,133 @@ public class MapGenerator : DestroySingleton<MapGenerator>
 
     #endregion
 
+    #region ISaveModule 구현
+
+    /// <summary>맵은 가장 먼저 복원</summary>
+    public int SaveOrder => 10;
+
+    /// <summary>
+    /// 맵 타일/벽 그리드와 자연물 상태를 캡처합니다.
+    /// </summary>
+    public void Capture(SaveData data)
+    {
+        if (_gameMap == null) return;
+
+        int width = GameMap.MAP_WIDTH;
+        int height = GameMap.MAP_HEIGHT;
+
+        int[] tiles = new int[width * height];
+        int[] walls = new int[width * height];
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int index = y * width + x;
+                tiles[index] = _gameMap.TileGrid[x, y];
+                walls[index] = _gameMap.WallGrid[x, y];
+            }
+        }
+
+        data.map = new MapSaveData
+        {
+            width = width,
+            height = height,
+            tileGrid = tiles,
+            wallGrid = walls,
+            entities = CaptureMapEntities()
+        };
+    }
+
+    /// <summary>
+    /// 맵 타일/벽 그리드를 복원하고 비주얼을 갱신합니다.
+    /// </summary>
+    public void Restore(SaveData data)
+    {
+        if (data.map == null || _gameMap == null) return;
+
+        var mapData = data.map;
+
+        for (int y = 0; y < mapData.height; y++)
+        {
+            for (int x = 0; x < mapData.width; x++)
+            {
+                int index = y * mapData.width + x;
+                _gameMap.TileGrid[x, y] = mapData.tileGrid[index];
+                _gameMap.WallGrid[x, y] = mapData.wallGrid[index];
+            }
+        }
+
+        MapRendererInstance?.RefreshAllTiles();
+
+        // 자연물 복원
+        RestoreMapEntities(mapData.entities);
+    }
+
+    public void PostRestore(SaveData data) { }
+
+    private List<MapEntitySaveData> CaptureMapEntities()
+    {
+        var entities = new List<MapEntitySaveData>();
+
+        var trees = FindObjectsOfType<ChoppableTree>();
+        foreach (var tree in trees)
+        {
+            entities.Add(new MapEntitySaveData
+            {
+                x = Mathf.FloorToInt(tree.transform.position.x),
+                y = Mathf.FloorToInt(tree.transform.position.y),
+                entityType = (int)TypeObjectTile.Plant,
+                variantId = 0,
+                remainingResource = tree.IsFullyGrown ? 1f : tree.GrowthProgress
+            });
+        }
+
+        var plants = FindObjectsOfType<HarvestablePlant>();
+        foreach (var plant in plants)
+        {
+            entities.Add(new MapEntitySaveData
+            {
+                x = Mathf.FloorToInt(plant.transform.position.x),
+                y = Mathf.FloorToInt(plant.transform.position.y),
+                entityType = (int)TypeObjectTile.Plant,
+                variantId = 1,
+                remainingResource = plant.GrowthProgress
+            });
+        }
+
+        return entities;
+    }
+
+    private void RestoreMapEntities(List<MapEntitySaveData> entities)
+    {
+        if (entities == null || _stamper == null) return;
+
+        // 기존 자연물 제거 (ClearCurrentState에서 이미 처리되지만, 안전장치)
+        var existingTrees = FindObjectsOfType<ChoppableTree>();
+        foreach (var tree in existingTrees) Destroy(tree.gameObject);
+
+        var existingPlants = FindObjectsOfType<HarvestablePlant>();
+        foreach (var plant in existingPlants) Destroy(plant.gameObject);
+
+        foreach (var entity in entities)
+        {
+            Vector2Int pos = new Vector2Int(entity.x, entity.y);
+
+            if (entity.variantId == 0)
+            {
+                // 나무 복원
+                _stamper.PlaceStamp(treeStampKey, pos);
+            }
+            else if (entity.variantId == 1)
+            {
+                // 열매 나무 복원
+                _stamper.PlaceStamp(berryBushStampKey, pos);
+            }
+        }
+    }
+
+    #endregion
+
 }
+

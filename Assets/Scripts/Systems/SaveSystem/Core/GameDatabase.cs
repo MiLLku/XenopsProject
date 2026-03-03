@@ -28,10 +28,15 @@ public class GameDatabase : ScriptableObject
     [Tooltip("모든 ItemData ScriptableObject")]
     public List<ItemData> allItemData;
 
+    [Header("레시피 데이터")]
+    [Tooltip("모든 CraftingRecipe ScriptableObject")]
+    public List<CraftingRecipe> allRecipeData;
+
     // ID → 데이터 캐시 (런타임)
     private Dictionary<int, EmployeeData> _employeeDataMap;
     private Dictionary<int, BuildingData> _buildingDataMap;
     private Dictionary<int, ItemData> _itemDataMap;
+    private Dictionary<int, CraftingRecipe> _recipeDataMap;
 
     private bool _initialized = false;
 
@@ -47,7 +52,7 @@ public class GameDatabase : ScriptableObject
         BuildCaches();
         _initialized = true;
 
-        Debug.Log($"[GameDatabase] 초기화 완료 - 직원: {_employeeDataMap.Count}, 건물: {_buildingDataMap.Count}, 아이템: {_itemDataMap.Count}");
+        Debug.Log($"[GameDatabase] 초기화 완료 - 직원: {_employeeDataMap.Count}, 건물: {_buildingDataMap.Count}, 아이템: {_itemDataMap.Count}, 레시피: {_recipeDataMap.Count}");
     }
 
     private void BuildCaches()
@@ -111,6 +116,26 @@ public class GameDatabase : ScriptableObject
                 }
             }
         }
+
+        // Recipe
+        _recipeDataMap = new Dictionary<int, CraftingRecipe>();
+        if (allRecipeData != null)
+        {
+            foreach (var data in allRecipeData)
+            {
+                if (data != null)
+                {
+                    if (_recipeDataMap.ContainsKey(data.recipeID))
+                    {
+                        Debug.LogWarning($"[GameDatabase] 중복 RecipeID: {data.recipeID} ({data.outputItem?.itemName})");
+                    }
+                    else
+                    {
+                        _recipeDataMap[data.recipeID] = data;
+                    }
+                }
+            }
+        }
     }
 
     #region 조회 메서드
@@ -145,6 +170,16 @@ public class GameDatabase : ScriptableObject
         return null;
     }
 
+    public CraftingRecipe GetRecipeData(int id)
+    {
+        if (_recipeDataMap != null && _recipeDataMap.TryGetValue(id, out var data))
+        {
+            return data;
+        }
+        Debug.LogWarning($"[GameDatabase] CraftingRecipe 없음: ID {id}");
+        return null;
+    }
+
     #endregion
 
     #region 전체 목록 조회
@@ -152,6 +187,7 @@ public class GameDatabase : ScriptableObject
     public List<EmployeeData> GetAllEmployeeData() => allEmployeeData ?? new List<EmployeeData>();
     public List<BuildingData> GetAllBuildingData() => allBuildingData ?? new List<BuildingData>();
     public List<ItemData> GetAllItemData() => allItemData ?? new List<ItemData>();
+    public List<CraftingRecipe> GetAllRecipeData() => allRecipeData ?? new List<CraftingRecipe>();
 
     #endregion
 

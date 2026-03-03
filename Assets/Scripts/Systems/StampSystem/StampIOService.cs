@@ -2,29 +2,34 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 
-
+/// <summary>
+/// 스탬프 파일 입출력 서비스.
+/// 스탬프 데이터를 JSON 파일로 저장/로드합니다.
+/// </summary>
 public static class StampIOService
 {
-    // 스탬프 JSON 파일이 저장될 기본 경로
+    /// <summary>스탬프 JSON 파일 저장 경로</summary>
     public static string StampSavePath => $"{Application.dataPath}/GameData/Stamps";
 
     /// <summary>
     /// 스탬프 데이터를 JSON 파일로 저장합니다.
     /// </summary>
+    /// <param name="data">저장할 스탬프 데이터</param>
     public static void SaveStamp(StampData data)
     {
         if (data == null || string.IsNullOrEmpty(data.key)) return;
 
-        Directory.CreateDirectory(StampSavePath); // 폴더가 없으면 생성
+        Directory.CreateDirectory(StampSavePath);
         string filePath = Path.Combine(StampSavePath, $"{data.key}.json");
-        string json = JsonUtility.ToJson(data, true); // JsonUtility로 직렬화
+        string json = JsonUtility.ToJson(data, true);
         File.WriteAllText(filePath, json);
         Debug.Log($"[StampIOService] 스탬프 저장: {filePath}");
     }
 
     /// <summary>
-    /// StampSavePath 폴더의 모든 .json 파일을 불러와 리스트로 반환합니다.
+    /// 스탬프 폴더의 모든 JSON 파일을 불러옵니다.
     /// </summary>
+    /// <returns>로드된 스탬프 데이터 리스트</returns>
     public static List<StampData> LoadAllStamps()
     {
         List<StampData> stamps = new List<StampData>();

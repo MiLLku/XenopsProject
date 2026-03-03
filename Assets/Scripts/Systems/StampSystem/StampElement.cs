@@ -1,16 +1,19 @@
 using System;
 using UnityEngine;
 
-
+/// <summary>
+/// 스탬프의 개별 요소.
+/// 스탬프 내 하나의 타일/개체 배치 정보를 나타냅니다.
+/// </summary>
 [Serializable]
 public struct StampElement
 {
-    // 스탬프의 (0,0)을 기준으로 한 상대적 위치
+    /// <summary>스탬프 원점(0,0) 기준 상대 위치</summary>
     public Vector2Int position;
-    
-    // 이 요소의 타입
+
+    /// <summary>요소의 타입 (타일, 건물, 적 등)</summary>
     public TypeObjectTile type;
-    
-    // 타일 ID, 건물 ID, 적 ID 등 실제 배치될 리소스의 고유 ID
+
+    /// <summary>배치될 리소스의 고유 ID (타일 ID, 건물 ID 등)</summary>
     public int id;
 }
