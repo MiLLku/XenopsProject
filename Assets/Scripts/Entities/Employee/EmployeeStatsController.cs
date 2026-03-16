@@ -64,6 +64,9 @@ public class EmployeeStatsController : MonoBehaviour
     /// <summary>특성 효과: 피로 증가 속도 보정</summary>
     private float cachedFatigueRateModifier = 1f;
 
+    /// <summary>장비 스탯 보정 (슬롯별)</summary>
+    private Dictionary<EquipmentSlot, EquipmentStatModifier> equipmentModifiers = new Dictionary<EquipmentSlot, EquipmentStatModifier>();
+
     /// <summary>코디네이터 참조</summary>
     private Employee employee;
 
@@ -314,6 +317,97 @@ public class EmployeeStatsController : MonoBehaviour
         currentStats.maxMental += mentalGain;
         currentStats.mental = currentStats.maxMental; // 레벨업 시 정신력 회복
         currentStats.attackPower += attackGain;
+
+        OnStatsChanged?.Invoke(currentStats);
+    }
+
+    #endregion
+
+    #region 장비 보정
+
+    /// <summary>
+    /// 장비 슬롯에 대한 스탯 보정을 추가합니다.
+    /// </summary>
+    public void AddEquipmentModifier(EquipmentSlot slot, EquipmentStatModifier modifier)
+    {
+        // 기존 보정 제거 후 추가
+        RemoveEquipmentModifier(slot);
+        equipmentModifiers[slot] = modifier;
+        ApplyEquipmentModifiers();
+    }
+
+    /// <summary>
+    /// 장비 슬롯의 스탯 보정을 제거합니다.
+    /// </summary>
+    public void RemoveEquipmentModifier(EquipmentSlot slot)
+    {
+        if (!equipmentModifiers.ContainsKey(slot)) return;
+        equipmentModifiers.Remove(slot);
+        ApplyEquipmentModifiers();
+    }
+
+    /// <summary>
+    /// 모든 장비 보정을 합산하여 스탯에 적용합니다.
+    /// </summary>
+    private void ApplyEquipmentModifiers()
+    {
+        // 기본 스탯에서 재계산
+        EmployeeData data = employee?.Data;
+        if (data == null) return;
+
+        float baseMaxHealth = data.maxHealth * cachedHealthModifier;
+        float baseMaxMental = data.maxMental * cachedMentalModifier;
+        int baseAttack = Mathf.RoundToInt(data.attackPower * (1f + GetTraitAttackModifier(data)));
+
+        // 장비 절대값 보정 합산
+        float equipHealthMod = 0f;
+        float equipMentalMod = 0f;
+        int equipAttackMod = 0;
+        float equipWorkSpeedMod = 0f;
+        float equipHungerRateMod = 0f;
+        float equipFatigueRateMod = 0f;
+
+        foreach (var kvp in equipmentModifiers)
+        {
+            equipHealthMod += kvp.Value.maxHealthModifier;
+            equipMentalMod += kvp.Value.maxMentalModifier;
+            equipAttackMod += kvp.Value.attackPowerModifier;
+            equipWorkSpeedMod += kvp.Value.workSpeedModifier;
+            equipHungerRateMod += kvp.Value.hungerRateModifier;
+            equipFatigueRateMod += kvp.Value.fatigueRateModifier;
+        }
+
+        // 최대치 갱신 (체력/정신력은 절대값 가감)
+        float oldMaxHealth = currentStats.maxHealth;
+        float oldMaxMental = currentStats.maxMental;
+
+        currentStats.maxHealth = Mathf.Max(1, baseMaxHealth + equipHealthMod);
+        currentStats.maxMental = Mathf.Max(1, baseMaxMental + equipMentalMod);
+        currentStats.attackPower = Mathf.Max(0, baseAttack + equipAttackMod);
+
+        // 현재 체력/정신력이 새 최대치를 초과하지 않도록 클램프
+        currentStats.health = Mathf.Clamp(currentStats.health, 0f, currentStats.maxHealth);
+        currentStats.mental = Mathf.Clamp(currentStats.mental, 0f, currentStats.maxMental);
+
+        // 퍼센트 보정 (특성 보정 + 장비 보정)
+        cachedWorkSpeedModifier = 1f;
+        cachedHungerRateModifier = 1f;
+        cachedFatigueRateModifier = 1f;
+
+        if (data?.traits != null)
+        {
+            foreach (var trait in data.traits)
+            {
+                if (trait == null) continue;
+                cachedWorkSpeedModifier += trait.effects.globalWorkSpeedModifier / 100f;
+                cachedHungerRateModifier += trait.effects.hungerRateModifier / 100f;
+                cachedFatigueRateModifier += trait.effects.fatigueRateModifier / 100f;
+            }
+        }
+
+        cachedWorkSpeedModifier += equipWorkSpeedMod / 100f;
+        cachedHungerRateModifier += equipHungerRateMod / 100f;
+        cachedFatigueRateModifier += equipFatigueRateMod / 100f;
 
         OnStatsChanged?.Invoke(currentStats);
     }
