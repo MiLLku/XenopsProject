@@ -141,7 +141,7 @@ public class XenopsEffectController : MonoBehaviour
         float radius = data.effectRadius;
         Vector3 pos = transform.position;
 
-        foreach (var employee in EmployeeManager.instance.GetAllEmployees())
+        foreach (var employee in EmployeeManager.instance.AllEmployees)
         {
             if (employee == null) continue;
             if (Vector3.Distance(pos, employee.transform.position) <= radius)
@@ -155,7 +155,7 @@ public class XenopsEffectController : MonoBehaviour
     {
         if (EmployeeManager.instance == null) return;
 
-        foreach (var employee in EmployeeManager.instance.GetAllEmployees())
+        foreach (var employee in EmployeeManager.instance.AllEmployees)
         {
             if (employee == null) continue;
             ApplyEffectToEmployee(employee, type, value, targetId);

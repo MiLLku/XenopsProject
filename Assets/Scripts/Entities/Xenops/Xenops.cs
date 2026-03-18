@@ -242,6 +242,14 @@ public class Xenops : MonoBehaviour
     #region 플레이어 상호작용
 
     /// <summary>
+    /// 해석 경험치를 직접 부여합니다 (EquipmentBehavior 등 내부 호출용).
+    /// </summary>
+    public void GainInterpretationExp(int amount)
+    {
+        interpretation?.GainExperience(amount);
+    }
+
+    /// <summary>
     /// 플레이어가 제노프스와 상호작용합니다.
     /// 해석 경험치를 획득합니다.
     /// </summary>
@@ -271,10 +279,18 @@ public class Xenops : MonoBehaviour
         // 드랍 아이템 처리
         if (xenopsData.subdueDropItemId > 0 && xenopsData.subdueDropAmount > 0)
         {
-            if (InventoryManager.instance != null)
+            if (InventoryManager.instance != null && GameDatabase.Instance != null)
             {
-                InventoryManager.instance.AddItem(xenopsData.subdueDropItemId, xenopsData.subdueDropAmount);
-                Debug.Log($"[Xenops] {DisplayName} 제압 — 아이템 드랍: ID {xenopsData.subdueDropItemId} x{xenopsData.subdueDropAmount}");
+                var dropItem = GameDatabase.Instance.GetItemData(xenopsData.subdueDropItemId);
+                if (dropItem != null)
+                {
+                    InventoryManager.instance.AddItem(dropItem, xenopsData.subdueDropAmount);
+                    Debug.Log($"[Xenops] {DisplayName} 제압 — 아이템 드랍: {dropItem.itemName} x{xenopsData.subdueDropAmount}");
+                }
+                else
+                {
+                    Debug.LogWarning($"[Xenops] {DisplayName} 제압 — 드랍 아이템 없음: ID {xenopsData.subdueDropItemId}");
+                }
             }
         }
 

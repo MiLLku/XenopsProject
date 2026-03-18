@@ -15,8 +15,8 @@ public class RuntimeIDRegistry : DestroySingleton<RuntimeIDRegistry>
 {
     #region 필드
 
-    /// <summary>instanceId → Object 매핑</summary>
-    private Dictionary<int, Object> _registry = new Dictionary<int, Object>();
+    /// <summary>instanceId → UnityEngine.Object 매핑</summary>
+    private Dictionary<int, UnityEngine.Object> _registry = new Dictionary<int, UnityEngine.Object>();
 
     [Header("디버그")]
     [SerializeField] private bool showDebugLogs = false;
@@ -31,7 +31,7 @@ public class RuntimeIDRegistry : DestroySingleton<RuntimeIDRegistry>
     /// </summary>
     /// <param name="id">인스턴스 ID</param>
     /// <param name="obj">등록할 오브젝트</param>
-    public void Register(int id, Object obj)
+    public void Register(int id, UnityEngine.Object obj)
     {
         if (id <= 0 || obj == null) return;
 
@@ -61,11 +61,11 @@ public class RuntimeIDRegistry : DestroySingleton<RuntimeIDRegistry>
     /// <typeparam name="T">조회할 타입</typeparam>
     /// <param name="id">인스턴스 ID</param>
     /// <returns>해당 오브젝트 (없으면 null)</returns>
-    public T Resolve<T>(int id) where T : Object
+    public T Resolve<T>(int id) where T : UnityEngine.Object
     {
         if (id <= 0) return null;
 
-        if (_registry.TryGetValue(id, out Object obj))
+        if (_registry.TryGetValue(id, out UnityEngine.Object obj))
         {
             if (obj is T typed)
             {
@@ -89,7 +89,7 @@ public class RuntimeIDRegistry : DestroySingleton<RuntimeIDRegistry>
     {
         if (id <= 0) return null;
 
-        if (_registry.TryGetValue(id, out Object obj))
+        if (_registry.TryGetValue(id, out UnityEngine.Object obj))
         {
             // 직접 컴포넌트인 경우
             if (obj is T typed)

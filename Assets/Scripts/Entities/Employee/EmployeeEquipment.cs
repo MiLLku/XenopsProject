@@ -413,9 +413,9 @@ public class EmployeeEquipment : MonoBehaviour
         float damage = ability.effectValue;
 
         // 범위 내 적대 Xenops에 피해
-        if (XenopsManager.Instance != null)
+        if (XenopsManager.instance != null)
         {
-            foreach (var xenops in XenopsManager.Instance.GetXenopsByType(XenopsType.Hostile))
+            foreach (var xenops in XenopsManager.instance.GetXenopsByType(XenopsType.Hostile))
             {
                 if (xenops == null || xenops.State == XenopsState.Subdued) continue;
                 if (Vector3.Distance(center, xenops.transform.position) <= radius)
@@ -444,7 +444,7 @@ public class EmployeeEquipment : MonoBehaviour
         if (ability.effectRadius > 0f && EmployeeManager.instance != null)
         {
             Vector3 center = employee.transform.position;
-            foreach (var emp in EmployeeManager.instance.GetAllEmployees())
+            foreach (var emp in EmployeeManager.instance.AllEmployees)
             {
                 if (emp == null || emp.State == EmployeeState.Dead) continue;
                 if (Vector3.Distance(center, emp.transform.position) <= ability.effectRadius)
@@ -483,9 +483,9 @@ public class EmployeeEquipment : MonoBehaviour
         Vector3 center = employee.transform.position;
         float radius = ability.effectRadius;
 
-        if (XenopsManager.Instance != null)
+        if (XenopsManager.instance != null)
         {
-            foreach (var xenops in XenopsManager.Instance.GetXenopsByType(XenopsType.Hostile))
+            foreach (var xenops in XenopsManager.instance.GetXenopsByType(XenopsType.Hostile))
             {
                 if (xenops == null || xenops.State == XenopsState.Subdued) continue;
                 if (Vector3.Distance(center, xenops.transform.position) <= radius)

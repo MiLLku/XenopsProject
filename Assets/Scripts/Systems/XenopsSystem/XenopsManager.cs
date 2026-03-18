@@ -3,36 +3,12 @@ using UnityEngine;
 
 /// <summary>
 /// 제노프스 매니저.
-/// 싱글톤 패턴 + ISaveModule로 제노프스의 생성, 관리, 저장/로드를 담당합니다.
+/// DestroySingleton + ISaveModule로 제노프스의 생성, 관리, 저장/로드를 담당합니다.
 ///
 /// SaveOrder: 55 (Employee=50 이후, WorkOrder=60 이전)
 /// </summary>
-public class XenopsManager : MonoBehaviour, ISaveModule
+public class XenopsManager : DestroySingleton<XenopsManager>, ISaveModule
 {
-    #region 싱글톤
-
-    public static XenopsManager instance { get; private set; }
-
-    void Awake()
-    {
-        if (instance != null && instance != this)
-        {
-            Destroy(gameObject);
-            return;
-        }
-        instance = this;
-    }
-
-    void OnDestroy()
-    {
-        if (instance == this)
-        {
-            instance = null;
-        }
-    }
-
-    #endregion
-
     #region 필드
 
     /// <summary>활성 제노프스 목록</summary>

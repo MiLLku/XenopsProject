@@ -104,19 +104,6 @@ public class EquipmentPassiveEffects
 }
 
 /// <summary>
-/// 특정 작업 타입에 대한 속도 보정.
-/// </summary>
-[Serializable]
-public struct WorkSpeedModifier
-{
-    [Tooltip("대상 작업 타입")]
-    public WorkType workType;
-
-    [Tooltip("속도 보정 (%)")]
-    public float speedModifier;
-}
-
-/// <summary>
 /// 장비 능력 (액티브/트리거 스킬).
 /// 발동 조건에 따라 자동 또는 수동으로 발동됩니다.
 /// </summary>
