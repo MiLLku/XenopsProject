@@ -47,6 +47,9 @@ public class SaveData
     /// <summary>바닥에 드롭된 아이템 목록</summary>
     public List<DroppedItemSaveData> droppedItems;
 
+    /// <summary>제노프스 엔티티 목록</summary>
+    public List<XenopsSaveData> xenopsEntities;
+
     #endregion
 
     #region 시스템 데이터
@@ -72,5 +75,6 @@ public class SaveData
         constructionSites = new List<ConstructionSiteSaveData>();
         workOrders = new List<WorkOrderSaveData>();
         droppedItems = new List<DroppedItemSaveData>();
+        xenopsEntities = new List<XenopsSaveData>();
     }
 }

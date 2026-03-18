@@ -113,12 +113,20 @@ public class EmployeeSaveData
 
     #endregion
 
+    #region 장비
+
+    /// <summary>장착 중인 장비 목록</summary>
+    public List<EquipmentSlotSaveData> equippedItems;
+
+    #endregion
+
     public EmployeeSaveData()
     {
         assignedWorkOrderId = -1;
         workPriorities = new List<WorkPrioritySaveData>();
         disqualifiedWorkTypes = new List<int>();
         activeMentalEvents = new List<MentalEventSaveData>();
+        equippedItems = new List<EquipmentSlotSaveData>();
         level = 1;
         experience = 0;
         experienceToNextLevel = 100;

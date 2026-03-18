@@ -6,7 +6,7 @@ using UnityEngine;
 ///
 /// ID 범위:
 ///   타일(1000~1999), 아이템(2000~2999), 건물(3000~3999),
-///   직원(4000~4999), 레시피(5000~5999)
+///   직원(4000~4999), 레시피(5000~5999), 제노프스(6000~6999)
 /// </summary>
 public static class GameIDRegistry
 {
@@ -172,13 +172,44 @@ public static class GameIDRegistry
 
     #endregion
 
+    #region 제노프스 ID (6000~6999)
+
+    /// <summary>
+    /// 제노프스 ID 범위 (6000~6999)
+    /// </summary>
+    public static class Xenops
+    {
+        // 환경 간섭 (6000~6099)
+        public const int ENVIRONMENTAL_MIN = 6000;
+        public const int ENVIRONMENTAL_MAX = 6099;
+
+        // 적대적 생명체 (6100~6199)
+        public const int HOSTILE_MIN = 6100;
+        public const int HOSTILE_MAX = 6199;
+
+        // 잠입체 (6200~6299)
+        public const int INFILTRATOR_MIN = 6200;
+        public const int INFILTRATOR_MAX = 6299;
+
+        // 장비형 (6300~6399)
+        public const int EQUIPMENT_MIN = 6300;
+        public const int EQUIPMENT_MAX = 6399;
+
+        public const int MIN = 6000;
+        public const int MAX = 6999;
+
+        public static bool IsValid(int id) => id >= MIN && id <= MAX;
+    }
+
+    #endregion
+
     #region 유틸리티
 
     /// <summary>
     /// ID가 어떤 타입에 속하는지 문자열로 반환합니다.
     /// </summary>
     /// <param name="id">확인할 ID</param>
-    /// <returns>타입 문자열 (Tile, Item, Building, Employee, Recipe, Unknown)</returns>
+    /// <returns>타입 문자열 (Tile, Item, Building, Employee, Recipe, Xenops, Unknown)</returns>
     public static string GetIDType(int id)
     {
         if (Tiles.IsValid(id)) return "Tile";
@@ -186,6 +217,7 @@ public static class GameIDRegistry
         if (Buildings.IsValid(id)) return "Building";
         if (Employees.IsValid(id)) return "Employee";
         if (Recipes.IsValid(id)) return "Recipe";
+        if (Xenops.IsValid(id)) return "Xenops";
 
         return "Unknown";
     }
@@ -221,6 +253,7 @@ public static class GameIDRegistry
         Debug.Log($"건물 (Building): {Buildings.MIN} ~ {Buildings.MAX}");
         Debug.Log($"직원 (Employee): {Employees.MIN} ~ {Employees.MAX}");
         Debug.Log($"레시피 (Recipe): {Recipes.MIN} ~ {Recipes.MAX}");
+        Debug.Log($"제노프스 (Xenops): {Xenops.MIN} ~ {Xenops.MAX}");
     }
 
     #endregion

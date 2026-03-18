@@ -54,6 +54,7 @@ public class Employee : MonoBehaviour
     private EmployeeGrowth growth;
     private EmployeeMovement movement;
     private EmployeeAI aiController;
+    private EmployeeEquipment equipment;
     private SpriteRenderer spriteRenderer;
 
     #endregion
@@ -161,6 +162,7 @@ public class Employee : MonoBehaviour
         growth = GetComponent<EmployeeGrowth>() ?? gameObject.AddComponent<EmployeeGrowth>();
         movement = GetComponent<EmployeeMovement>() ?? gameObject.AddComponent<EmployeeMovement>();
         aiController = GetComponent<EmployeeAI>() ?? gameObject.AddComponent<EmployeeAI>();
+        equipment = GetComponent<EmployeeEquipment>() ?? gameObject.AddComponent<EmployeeEquipment>();
     }
 
     void Start()
@@ -378,6 +380,45 @@ public class Employee : MonoBehaviour
 
     #endregion
 
+    #region 파사드 — 장비 (Equipment 위임)
+
+    /// <summary>일반 장비 장착</summary>
+    public bool EquipItem(EquipmentSlot slot, EquipmentData data)
+        => equipment != null && equipment.EquipItem(slot, data);
+
+    /// <summary>일반 장비 해제</summary>
+    public EquipmentData UnequipItem(EquipmentSlot slot)
+        => equipment?.UnequipItem(slot);
+
+    /// <summary>제노프스 장비 장착</summary>
+    public bool EquipXenops(EquipmentSlot slot, Xenops xenops)
+        => equipment != null && equipment.EquipXenops(slot, xenops);
+
+    /// <summary>제노프스 장비 해제</summary>
+    public Xenops UnequipXenops(EquipmentSlot slot)
+        => equipment?.UnequipXenops(slot);
+
+    /// <summary>야간 작업 가능 여부</summary>
+    public bool CanWorkAtNight()
+        => equipment != null && equipment.CanWorkAtNight();
+
+    /// <summary>비 보호 여부</summary>
+    public bool HasRainProtection()
+        => equipment != null && equipment.HasRainProtection();
+
+    /// <summary>능력 트리거 발동</summary>
+    public void TriggerAbilities(AbilityTriggerType trigger)
+        => equipment?.TriggerAbilities(trigger);
+
+    /// <summary>장비 슬롯이 비어있는지 확인</summary>
+    public bool IsEquipmentSlotEmpty(EquipmentSlot slot)
+        => equipment == null || equipment.IsSlotEmpty(slot);
+
+    /// <summary>장비 컴포넌트 참조</summary>
+    public EmployeeEquipment Equipment => equipment;
+
+    #endregion
+
     #region 저장/로드
 
     /// <summary>
@@ -401,6 +442,7 @@ public class Employee : MonoBehaviour
         work?.PopulateSaveData(saveData);
         growth?.PopulateSaveData(saveData);
         mental?.PopulateSaveData(saveData);
+        equipment?.PopulateSaveData(saveData);
 
         return saveData;
     }
@@ -431,6 +473,7 @@ public class Employee : MonoBehaviour
         work?.RestoreFromSaveData(data);
         growth?.RestoreFromSaveData(data, isUnique);
         mental?.RestoreFromSaveData(data);
+        equipment?.RestoreFromSaveData(data);
 
         UpdateVisualState();
 

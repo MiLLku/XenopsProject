@@ -32,11 +32,21 @@ public class GameDatabase : ScriptableObject
     [Tooltip("모든 CraftingRecipe ScriptableObject")]
     public List<CraftingRecipe> allRecipeData;
 
+    [Header("제노프스 데이터")]
+    [Tooltip("모든 XenopsData ScriptableObject")]
+    public List<XenopsData> allXenopsData;
+
+    [Header("장비 데이터")]
+    [Tooltip("모든 EquipmentData ScriptableObject")]
+    public List<EquipmentData> allEquipmentData;
+
     // ID → 데이터 캐시 (런타임)
     private Dictionary<int, EmployeeData> _employeeDataMap;
     private Dictionary<int, BuildingData> _buildingDataMap;
     private Dictionary<int, ItemData> _itemDataMap;
     private Dictionary<int, CraftingRecipe> _recipeDataMap;
+    private Dictionary<int, XenopsData> _xenopsDataMap;
+    private Dictionary<int, EquipmentData> _equipmentDataMap;
 
     private bool _initialized = false;
 
@@ -52,7 +62,7 @@ public class GameDatabase : ScriptableObject
         BuildCaches();
         _initialized = true;
 
-        Debug.Log($"[GameDatabase] 초기화 완료 - 직원: {_employeeDataMap.Count}, 건물: {_buildingDataMap.Count}, 아이템: {_itemDataMap.Count}, 레시피: {_recipeDataMap.Count}");
+        Debug.Log($"[GameDatabase] 초기화 완료 - 직원: {_employeeDataMap.Count}, 건물: {_buildingDataMap.Count}, 아이템: {_itemDataMap.Count}, 레시피: {_recipeDataMap.Count}, 제노프스: {_xenopsDataMap.Count}, 장비: {_equipmentDataMap.Count}");
     }
 
     private void BuildCaches()
@@ -136,6 +146,46 @@ public class GameDatabase : ScriptableObject
                 }
             }
         }
+
+        // Xenops
+        _xenopsDataMap = new Dictionary<int, XenopsData>();
+        if (allXenopsData != null)
+        {
+            foreach (var data in allXenopsData)
+            {
+                if (data != null)
+                {
+                    if (_xenopsDataMap.ContainsKey(data.xenopsID))
+                    {
+                        Debug.LogWarning($"[GameDatabase] 중복 XenopsID: {data.xenopsID} ({data.xenopsName})");
+                    }
+                    else
+                    {
+                        _xenopsDataMap[data.xenopsID] = data;
+                    }
+                }
+            }
+        }
+
+        // Equipment (ItemData.itemID 기준 캐시)
+        _equipmentDataMap = new Dictionary<int, EquipmentData>();
+        if (allEquipmentData != null)
+        {
+            foreach (var data in allEquipmentData)
+            {
+                if (data != null && data.itemData != null)
+                {
+                    if (_equipmentDataMap.ContainsKey(data.itemData.itemID))
+                    {
+                        Debug.LogWarning($"[GameDatabase] 중복 EquipmentID: {data.itemData.itemID} ({data.itemData.itemName})");
+                    }
+                    else
+                    {
+                        _equipmentDataMap[data.itemData.itemID] = data;
+                    }
+                }
+            }
+        }
     }
 
     #region 조회 메서드
@@ -180,6 +230,27 @@ public class GameDatabase : ScriptableObject
         return null;
     }
 
+    public XenopsData GetXenopsData(int id)
+    {
+        if (_xenopsDataMap != null && _xenopsDataMap.TryGetValue(id, out var data))
+        {
+            return data;
+        }
+        Debug.LogWarning($"[GameDatabase] XenopsData 없음: ID {id}");
+        return null;
+    }
+
+    /// <summary>아이템 ID로 장비 데이터 조회</summary>
+    public EquipmentData GetEquipmentData(int itemId)
+    {
+        if (_equipmentDataMap != null && _equipmentDataMap.TryGetValue(itemId, out var data))
+        {
+            return data;
+        }
+        Debug.LogWarning($"[GameDatabase] EquipmentData 없음: ItemID {itemId}");
+        return null;
+    }
+
     #endregion
 
     #region 전체 목록 조회
@@ -188,6 +259,8 @@ public class GameDatabase : ScriptableObject
     public List<BuildingData> GetAllBuildingData() => allBuildingData ?? new List<BuildingData>();
     public List<ItemData> GetAllItemData() => allItemData ?? new List<ItemData>();
     public List<CraftingRecipe> GetAllRecipeData() => allRecipeData ?? new List<CraftingRecipe>();
+    public List<XenopsData> GetAllXenopsData() => allXenopsData ?? new List<XenopsData>();
+    public List<EquipmentData> GetAllEquipmentData() => allEquipmentData ?? new List<EquipmentData>();
 
     #endregion
 
@@ -246,6 +319,36 @@ public class GameDatabase : ScriptableObject
             {
                 Debug.LogError($"[GameDatabase] 중복 ItemID: {data.itemID} ({data.itemName})");
                 errors++;
+            }
+        }
+
+        // Xenops
+        if (allXenopsData != null)
+        {
+            var xenopsIds = new HashSet<int>();
+            foreach (var data in allXenopsData)
+            {
+                if (data == null) continue;
+                if (!xenopsIds.Add(data.xenopsID))
+                {
+                    Debug.LogError($"[GameDatabase] 중복 XenopsID: {data.xenopsID} ({data.xenopsName})");
+                    errors++;
+                }
+            }
+        }
+
+        // Equipment
+        if (allEquipmentData != null)
+        {
+            var equipIds = new HashSet<int>();
+            foreach (var data in allEquipmentData)
+            {
+                if (data == null || data.itemData == null) continue;
+                if (!equipIds.Add(data.itemData.itemID))
+                {
+                    Debug.LogError($"[GameDatabase] 중복 EquipmentID: {data.itemData.itemID} ({data.itemData.itemName})");
+                    errors++;
+                }
             }
         }
 
