@@ -99,7 +99,7 @@ public class SaveManager : DontDestroySingleton<SaveManager>
     {
         if (enableAutoSave && !_isLoading)
         {
-            _autoSaveTimer += Time.deltaTime;
+            _autoSaveTimer += Time.unscaledDeltaTime;
             if (_autoSaveTimer >= autoSaveInterval)
             {
                 _autoSaveTimer = 0f;

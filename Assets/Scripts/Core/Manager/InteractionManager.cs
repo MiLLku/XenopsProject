@@ -126,7 +126,7 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         
         HandleModeHotkeys();
         
-        if (enableCheatKey && Input.GetKeyDown(KeyCode.Alpha1))
+        if (enableCheatKey && Input.GetKeyDown(KeyCode.F9))
         {
             ExecuteAllOrdersInstantly();
         }

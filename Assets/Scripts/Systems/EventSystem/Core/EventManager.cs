@@ -122,6 +122,15 @@ public class EventManager : DestroySingleton<EventManager>, ISaveModule
         // 이벤트 콜백
         OnEventTriggered?.Invoke(eventData);
 
+        // 게임 속도 조절: 위험 이벤트 → 강제 정지, 일반 이벤트 → 1배속
+        if (TimeManager.instance != null)
+        {
+            if (TimeManager.instance.IsDangerousCategory(eventData.category))
+                TimeManager.instance.ForcePause();
+            else
+                TimeManager.instance.SetSpeedToNormal();
+        }
+
         // 선택지가 있으면 UI 표시 (TODO: UI 연동)
         if (eventData.HasChoices)
         {
