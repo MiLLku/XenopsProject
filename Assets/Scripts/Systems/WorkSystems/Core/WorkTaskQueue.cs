@@ -172,7 +172,7 @@ public class WorkTaskQueue
             if (workerOccupiedTiles.Contains(taskTile))
                 return false;
 
-            return worker.IsPositionInWorkRange(taskTile3);
+            return worker.GetWorkableRange().Contains(taskTile3);
         }).ToList();
 
         if (tasksInRange.Count == 0)

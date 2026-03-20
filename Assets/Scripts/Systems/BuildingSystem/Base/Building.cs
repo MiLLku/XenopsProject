@@ -155,8 +155,6 @@ public class Building : MonoBehaviour
         RegisterToGameMap();
     }
 
-    #endregion
-
     void Start()
     {
         // 새로 생성된 건물에 instanceId 부여 (복원된 건물은 이미 설정됨)

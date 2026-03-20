@@ -999,7 +999,7 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>, ISaveModul
                 recipeId = crafting.recipe != null ? crafting.recipe.recipeID : -1,
                 craftAmount = crafting.craftAmount,
                 craftingProgress = crafting.CraftingProgress,
-                buildingInstanceId = crafting.building != null ? crafting.building.InstanceId : -1,
+                buildingInstanceId = crafting.building != null ? (crafting.building.GetComponent<Building>()?.InstanceId ?? -1) : -1,
                 reservationId = crafting.ReservationId
             });
         }
@@ -1170,7 +1170,7 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>, ISaveModul
     private IHarvestable FindHarvestableAtPosition(int x, int y)
     {
         // 씬 내 모든 IHarvestable 검색
-        var allHarvestables = Object.FindObjectsOfType<MonoBehaviour>();
+        var allHarvestables = UnityEngine.Object.FindObjectsOfType<MonoBehaviour>();
         foreach (var mb in allHarvestables)
         {
             if (!(mb is IHarvestable harvestable)) continue;
