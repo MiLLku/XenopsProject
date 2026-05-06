@@ -198,7 +198,10 @@ public class ConstructionSite : MonoBehaviour
             {
                 int tileX = gridPosition.x + x;
                 int tileY = gridPosition.y + y;
-                gameMap.MarkTileOccupied(tileX, tileY, buildingData.blocksMovement);
+                // 청사진 단계: 이동을 차단하지 않음 (직원이 건설 현장에 접근·통과 가능)
+                // 공간은 점유 상태로 표시해 다른 건물이 중복 배치되는 것만 방지
+                // 완공 후 Building.RegisterToGameMap()이 buildingData.blocksMovement 값으로 재등록
+                gameMap.MarkTileOccupied(tileX, tileY, blocksMovement: false);
             }
         }
     }
@@ -249,6 +252,8 @@ public class ConstructionSite : MonoBehaviour
             completed = false
         };
 
+        // 건설은 자동 픽업 작업이므로 maxWorkers 제한이 적용되지 않음.
+        // 단일 건설 현장에는 BuildOrder가 1개뿐이므로 자연스럽게 1명만 작업하게 됨.
         workOrder = WorkSystemManager.instance.CreateWorkOrder(
             $"건설: {buildingData.buildingName}",
             WorkType.Building,
@@ -312,6 +317,9 @@ public class ConstructionSite : MonoBehaviour
         ReleaseTiles();
         SpawnBuilding();
 
+        // 건물 안에 갇힌 직원을 인접 위치로 밀어냄 (SpawnBuilding 이후 GameMap이 갱신된 뒤 실행)
+        SnapEmployeesOutOfFootprint();
+
         if (ConstructionManager.instance != null)
         {
             ConstructionManager.instance.OnConstructionCompleted(this);
@@ -343,6 +351,33 @@ public class ConstructionSite : MonoBehaviour
 
         ReleaseTiles();
         Destroy(gameObject);
+    }
+
+    #endregion
+
+    #region 직원 위치 보정
+
+    /// <summary>
+    /// 건설이 완료된 건물의 footprint 안에 있는 직원을 외부로 밀어냅니다.
+    /// SpawnBuilding() 이후 GameMap이 최신 상태일 때 호출해야 합니다.
+    /// </summary>
+    private void SnapEmployeesOutOfFootprint()
+    {
+        if (EmployeeManager.instance == null) return;
+
+        // 통행 가능 건물(바닥 타일, 다리 등)은 직원이 그 내부에 있어도 이동·착지에 지장이 없으므로
+        // 옆으로 밀어낼 필요가 없습니다. 오히려 스냅하면 지면이 없는 위치로 이동해 낙하할 수 있습니다.
+        if (!buildingData.blocksMovement) return;
+
+        foreach (var emp in EmployeeManager.instance.AllEmployees)
+        {
+            if (emp == null) continue;
+
+            var movement = emp.GetComponent<EmployeeMovement>();
+            if (movement == null) continue;
+
+            movement.SnapOutOfBuilding(gridPosition, buildingData.size);
+        }
     }
 
     #endregion

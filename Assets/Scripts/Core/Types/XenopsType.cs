@@ -19,6 +19,28 @@ public enum XenopsType
 }
 
 /// <summary>
+/// 제노프스 난이도 등급.
+/// 등급이 높을수록 강력하며 희귀합니다.
+/// </summary>
+public enum XenopsGrade
+{
+    /// <summary>F등급 — 가장 낮음, 매우 흔함</summary>
+    F,
+    /// <summary>E등급 — 낮음</summary>
+    E,
+    /// <summary>D등급 — 보통 이하</summary>
+    D,
+    /// <summary>C등급 — 보통</summary>
+    C,
+    /// <summary>B등급 — 보통 이상</summary>
+    B,
+    /// <summary>A등급 — 강함</summary>
+    A,
+    /// <summary>S등급 — 최강, 매우 희귀</summary>
+    S
+}
+
+/// <summary>
 /// 제노프스 상태.
 /// </summary>
 public enum XenopsState

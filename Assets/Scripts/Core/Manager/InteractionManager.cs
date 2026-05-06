@@ -303,8 +303,9 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     private void HandleNormalMode()
     {
         Vector3 mousePos = _cameraController.GetMouseWorldPosition();
-        RaycastHit2D hit = Physics2D.Raycast(mousePos, Vector2.zero);
 
+        // 호버 처리: 단순 Raycast (첫 번째 히트)
+        RaycastHit2D hit = Physics2D.Raycast(mousePos, Vector2.zero);
         if (hit.collider != null)
         {
             GameObject hitObject = hit.collider.gameObject;
@@ -323,10 +324,51 @@ public class InteractionManager : DestroySingleton<InteractionManager>
         {
             if (IsPointerOverInteractiveUI()) return;
 
-            if (hit.collider != null)
+            // 클릭 처리: 모든 콜라이더를 검사해 우선순위 높은 오브젝트부터 처리
+            // (TilemapCollider가 BuildingCollider를 가리는 문제 방지)
+            Collider2D[] allHits = Physics2D.OverlapPointAll(mousePos);
+            if (allHits.Length > 0)
             {
-                HandleNormalModeClick(hit.collider.gameObject);
+                HandleNormalModeClickAll(allHits);
             }
+        }
+    }
+
+    /// <summary>
+    /// 겹친 모든 콜라이더 중 우선순위 순으로 클릭 처리.
+    /// 우선순위: WorkOrderVisual > ConstructionSite > Employee > Building > Harvestable
+    /// </summary>
+    private void HandleNormalModeClickAll(Collider2D[] hits)
+    {
+        // 우선순위 1: WorkOrderVisual
+        foreach (var col in hits)
+        {
+            WorkOrderVisual workVisual = col.GetComponent<WorkOrderVisual>();
+            if (workVisual != null) { workVisual.OnClicked(); return; }
+        }
+        // 우선순위 2: ConstructionSite
+        foreach (var col in hits)
+        {
+            ConstructionSite site = col.GetComponent<ConstructionSite>();
+            if (site != null) { OnConstructionSiteClicked(site); return; }
+        }
+        // 우선순위 3: Employee
+        foreach (var col in hits)
+        {
+            Employee emp = col.GetComponent<Employee>();
+            if (emp != null) { OnEmployeeClicked(emp); return; }
+        }
+        // 우선순위 4: Building
+        foreach (var col in hits)
+        {
+            Building building = col.GetComponent<Building>();
+            if (building != null) { OnBuildingClicked(building); return; }
+        }
+        // 우선순위 5: IHarvestable
+        foreach (var col in hits)
+        {
+            IHarvestable harvestable = col.GetComponent<IHarvestable>();
+            if (harvestable != null) { OnHarvestableClicked(harvestable, col.gameObject); return; }
         }
     }
 
@@ -355,6 +397,8 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     
     private void HandleNormalModeClick(GameObject clickedObject)
     {
+        Debug.Log($"[Interaction] 클릭된 오브젝트: {clickedObject.name} (Layer:{clickedObject.layer})");
+
         // 작업 더미 클릭
         WorkOrderVisual workVisual = clickedObject.GetComponent<WorkOrderVisual>();
         if (workVisual != null)
@@ -429,6 +473,42 @@ public class InteractionManager : DestroySingleton<InteractionManager>
     
     private void OnBuildingClicked(Building building)
     {
+        Debug.Log($"[Interaction] OnBuildingClicked 호출됨: {building.gameObject.name}");
+
+        // 직원 채용 건물 처리
+        HiringOffice hiringOffice = building.GetComponent<HiringOffice>();
+        if (hiringOffice != null)
+        {
+            Debug.Log($"[Interaction] HiringOffice 발견. IsUsed={hiringOffice.IsUsed}, Candidates={hiringOffice.GetCandidates().Count}");
+
+            if (hiringOffice.IsUsed)
+            {
+                Debug.Log("[Interaction] 채용 건물: 이미 채용이 완료되었습니다.");
+                return;
+            }
+
+            if (UIManager.instance != null)
+            {
+                HiringPanel panel = UIManager.instance.GetPanel<HiringPanel>(UIPanelType.HiringUI);
+                Debug.Log($"[Interaction] GetPanel<HiringPanel>: {(panel != null ? "찾음" : "null")}");
+                if (panel != null)
+                {
+                    panel.Setup(hiringOffice, hiringOffice.GetCandidates());
+                    UIManager.instance.ShowPanel(UIPanelType.HiringUI);
+                    Debug.Log("[Interaction] HiringPanel 표시 완료");
+                }
+                else
+                {
+                    Debug.LogWarning("[Interaction] HiringPanel이 UIManager에 등록되지 않았습니다.");
+                }
+            }
+            else
+            {
+                Debug.LogWarning("[Interaction] UIManager.instance가 null입니다.");
+            }
+            return;
+        }
+
         Debug.Log($"[Interaction] 건물 클릭: {building.buildingData?.buildingName}");
     }
     

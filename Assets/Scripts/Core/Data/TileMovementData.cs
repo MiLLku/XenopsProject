@@ -9,15 +9,18 @@ public class TileMovementData
 {
     #region 타일 ID 상수
 
-    private const int AIR_ID = 0;
-    private const int DIRT_ID = 1;
-    private const int STONE_ID = 2;
-    private const int COPPER_ORE_ID = 3;
-    private const int IRON_ORE_ID = 4;
-    private const int GOLD_ORE_ID = 5;
-    private const int GRASS_ID = 6;
+    private const int AIR_ID            = 0;
+    private const int DIRT_ID           = 1;
+    private const int STONE_ID          = 2;
+    private const int COPPER_ORE_ID     = 3;
+    private const int IRON_ORE_ID       = 4;
+    private const int GOLD_ORE_ID       = 5;
+    private const int GRASS_ID          = 6;
     private const int PROCESSED_DIRT_ID = 7;
-    private const int LADDER_ID = 8;
+    private const int LADDER_ID         = 8;
+    private const int COAL_ID           = 9;
+    private const int SILVER_ID         = 10;
+    private const int CRYSTAL_ID        = 11;
 
     #endregion
 
@@ -51,6 +54,15 @@ public class TileMovementData
     [Tooltip("LADDER - 사다리, 층간 이동용")]
     public float ladderSpeedMultiplier = 0.8f;
 
+    [Tooltip("COAL - 석탄, 기본 속도")]
+    public float coalSpeedMultiplier = 1f;
+
+    [Tooltip("SILVER - 은, 기본 속도")]
+    public float silverSpeedMultiplier = 1f;
+
+    [Tooltip("CRYSTAL - 수정, 기본 속도")]
+    public float crystalSpeedMultiplier = 1f;
+
     #endregion
 
     #region 공개 API
@@ -72,7 +84,10 @@ public class TileMovementData
             case GOLD_ORE_ID: return goldSpeedMultiplier;
             case GRASS_ID: return grassSpeedMultiplier;
             case PROCESSED_DIRT_ID: return processedDirtSpeedMultiplier;
-            case LADDER_ID: return ladderSpeedMultiplier;
+            case LADDER_ID:  return ladderSpeedMultiplier;
+            case COAL_ID:    return coalSpeedMultiplier;
+            case SILVER_ID:  return silverSpeedMultiplier;
+            case CRYSTAL_ID: return crystalSpeedMultiplier;
             default: return 1f;
         }
     }

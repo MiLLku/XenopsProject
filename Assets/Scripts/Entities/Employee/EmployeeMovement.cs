@@ -56,11 +56,20 @@ public class EmployeeMovement : MonoBehaviour
     /// <summary>이동 목표 월드 좌표</summary>
     private Vector3 targetPosition;
 
+    /// <summary>현재 이동에 사용 중인 PathOptions</summary>
+    private PathOptions currentPathOptions;
+
     /// <summary>현재 낙하 중 여부</summary>
     private bool isFalling = false;
 
     /// <summary>현재 이동 중 여부</summary>
     private bool isMoving = false;
+
+    /// <summary>
+    /// 수직 이동(사다리 오르기/내리기) 중 여부.
+    /// true일 때 CheckGroundAndFall의 낙하 판정을 건너뜁니다.
+    /// </summary>
+    private bool isClimbing = false;
 
     /// <summary>이동 성공 콜백</summary>
     private Action onReachDestination;
@@ -77,10 +86,18 @@ public class EmployeeMovement : MonoBehaviour
     /// <summary>현재 경로 인덱스</summary>
     private int currentPathIndex = 0;
 
+    /// <summary>
+    /// 마지막으로 확인한 GameMap.NavVersion.
+    /// 이동 중 이 값이 바뀌면 다음 타일 진입 전 경로 재검증을 수행합니다.
+    /// </summary>
+    private int lastNavVersion = -1;
+
     // 컴포넌트 참조
     private Rigidbody2D rb;
     private Collider2D col;
     private Employee employee;
+    private EmployeeErosionController erosionController;
+    private EmployeeStatsController statsController;
     private GameMap gameMap;
     private TilePathfinder pathfinder;
 
@@ -122,6 +139,8 @@ public class EmployeeMovement : MonoBehaviour
         rb = GetComponent<Rigidbody2D>();
         col = GetComponent<Collider2D>();
         employee = GetComponent<Employee>();
+        erosionController = GetComponent<EmployeeErosionController>();
+        statsController = GetComponent<EmployeeStatsController>();
 
         if (rb != null)
         {
@@ -145,8 +164,14 @@ public class EmployeeMovement : MonoBehaviour
             gameMap = MapGenerator.instance.GameMapInstance;
             pathfinder = new TilePathfinder(gameMap);
 
+            // 초기 NavVersion 동기화 (맵 생성 중 누적된 버전 무시)
+            lastNavVersion = gameMap?.NavVersion ?? 0;
+
             // 피벗 변경 후 위치 보정: 직원이 고체 안에 있으면 위로 밀어냄
             AdjustPositionIfInsideSolid();
+
+            // 스폰 위치 주변 안개 제거
+            FogOfWarManager.instance?.RevealAround(GetFootTile());
         }
         else
         {
@@ -189,7 +214,7 @@ public class EmployeeMovement : MonoBehaviour
                             bool hasGround = groundY >= 0 && (
                                 gameMap.TileGrid[checkX, groundY] != 0 ||
                                 FloorTile.HasFloorTileAt(new Vector2Int(checkX, groundY)) ||
-                                (gameMap.IsTileOccupied(checkX, groundY) && !gameMap.DoesTileBlockMovement(checkX, groundY))
+                                gameMap.IsFloorSupport(checkX, groundY)
                             );
 
                             bool bodySpaceClear = checkY + 1 >= GameMap.MAP_HEIGHT ||
@@ -229,7 +254,8 @@ public class EmployeeMovement : MonoBehaviour
     /// </summary>
     private void CheckGroundAndFall()
     {
-        if (gameMap == null) return;
+        if (gameMap == null)    return;
+        if (isClimbing)         return; // 사다리 이동 중 낙하 판정 스킵
 
         Vector2Int footTile = GetFootTile();
         Vector2Int groundTile = new Vector2Int(footTile.x, footTile.y - 1);
@@ -279,7 +305,8 @@ public class EmployeeMovement : MonoBehaviour
             moveCoroutine = null;
         }
 
-        isMoving = false;
+        isMoving   = false;
+        isClimbing = false;
         currentPath = null;
         currentPathIndex = 0;
 
@@ -322,8 +349,9 @@ public class EmployeeMovement : MonoBehaviour
             return true;
         }
 
-        // 건설된 바닥 타일 (OccupiedGrid=true, BlocksMovement=false)
-        if (gameMap.IsTileOccupied(tilePos.x, tilePos.y) && !gameMap.DoesTileBlockMovement(tilePos.x, tilePos.y))
+        // 완공된 바닥 건물만 true — 건설 예정지(blueprint)는 포함되지 않음
+        // (IsFloorSupport는 Building.RegisterToGameMap에서 blocksMovement=false일 때만 설정)
+        if (gameMap.IsFloorSupport(tilePos.x, tilePos.y))
         {
             return true;
         }
@@ -363,7 +391,7 @@ public class EmployeeMovement : MonoBehaviour
 
             bool hasGround = gameMap.TileGrid[x, groundY] != 0 ||
                              FloorTile.HasFloorTileAt(new Vector2Int(x, groundY)) ||
-                             (gameMap.IsTileOccupied(x, groundY) && !gameMap.DoesTileBlockMovement(x, groundY));
+                             gameMap.IsFloorSupport(x, groundY);
 
             return hasGround;
         }
@@ -408,6 +436,10 @@ public class EmployeeMovement : MonoBehaviour
         }
 
         Vector2Int footTile = GetFootTile();
+
+        // 낙하 착지 후에도 주변 안개 제거 (이동 코루틴 없이 떨어진 경우 커버)
+        FogOfWarManager.instance?.RevealAround(footTile);
+
         OnLanded?.Invoke(footTile);
     }
 
@@ -421,8 +453,18 @@ public class EmployeeMovement : MonoBehaviour
     /// <param name="worldDestination">목표 월드 좌표</param>
     /// <param name="onComplete">이동 성공 시 콜백</param>
     /// <param name="onFailed">이동 실패 시 콜백 (경로 없음 등)</param>
+    /// <summary>
+    /// PathOptions를 지정하여 이동합니다 (구역 제한 등).
+    /// </summary>
+    public void MoveTo(Vector3 worldDestination, PathOptions options, Action onComplete = null, Action onFailed = null)
+    {
+        currentPathOptions = options;
+        MoveTo(worldDestination, onComplete, onFailed);
+    }
+
     public void MoveTo(Vector3 worldDestination, Action onComplete = null, Action onFailed = null)
     {
+        currentPathOptions = null;
         if (pathfinder == null)
         {
             Debug.LogError("[EmployeeMovement] Pathfinder가 초기화되지 않았습니다!");
@@ -450,7 +492,7 @@ public class EmployeeMovement : MonoBehaviour
             return;
         }
 
-        currentPath = pathfinder.FindPath(currentTile, goalTile);
+        currentPath = pathfinder.FindPath(currentTile, goalTile, currentPathOptions);
 
         if (currentPath == null || currentPath.Count == 0)
         {
@@ -478,32 +520,69 @@ public class EmployeeMovement : MonoBehaviour
     }
 
     /// <summary>
-    /// 기존 호환성을 위한 오버로드 (실패 콜백 없이).
-    /// </summary>
-    /// <param name="worldDestination">목표 월드 좌표</param>
-    /// <param name="onComplete">이동 성공 시 콜백</param>
-    public void MoveTo(Vector3 worldDestination, Action onComplete)
-    {
-        MoveTo(worldDestination, onComplete, null);
-    }
-
-    /// <summary>
     /// 경로를 따라 이동하는 코루틴.
+    /// 타일 진입 전마다 GameMap.NavVersion을 확인해 지형 변화 시 즉시 재탐색합니다.
     /// </summary>
     private IEnumerator FollowPathCoroutine()
     {
         EnablePhysicsForMovement(false);
+        lastNavVersion = gameMap?.NavVersion ?? lastNavVersion;
 
         while (isMoving && currentPathIndex < currentPath.Count)
         {
-            Vector2Int currentTile = (currentPathIndex > 0) ? currentPath[currentPathIndex - 1] : GetFootTile();
             Vector2Int nextTile = currentPath[currentPathIndex];
 
-            int heightDiff = nextTile.y - currentTile.y;
+            // ── 경로 무효화 체크 ──────────────────────────────────────────────
+            // 지형이 변했고 다음 타일이 더 이상 서 있을 수 없는 곳이라면 재탐색.
+            if (gameMap != null && lastNavVersion != gameMap.NavVersion)
+            {
+                lastNavVersion = gameMap.NavVersion;
+
+                if (!pathfinder.IsValidPosition(nextTile))
+                {
+                    Vector2Int currentFoot = GetFootTile();
+                    Vector2Int goalTile    = new Vector2Int(
+                        Mathf.FloorToInt(targetPosition.x),
+                        Mathf.FloorToInt(targetPosition.y)
+                    );
+
+                    List<Vector2Int> newPath = pathfinder.FindPath(currentFoot, goalTile, currentPathOptions);
+
+                    if (newPath == null || newPath.Count == 0)
+                    {
+                        if (showDebugLogs)
+                            Debug.LogWarning($"[EmployeeMovement] 지형 변화 → 재탐색 실패: {currentFoot} -> {goalTile}");
+
+                        EnablePhysicsForMovement(true);
+
+                        var failCb = onMoveFailed;
+                        isMoving           = false;
+                        currentPath        = null;
+                        currentPathIndex   = 0;
+                        onReachDestination = null;
+                        onMoveFailed       = null;
+
+                        failCb?.Invoke();
+                        yield break;
+                    }
+
+                    currentPath      = newPath;
+                    currentPathIndex = 0;
+
+                    if (showDebugLogs)
+                        Debug.Log($"[EmployeeMovement] 지형 변화 감지 → 재탐색 완료 ({newPath.Count}타일)");
+
+                    continue; // 새 경로의 첫 타일부터 재시작
+                }
+            }
+            // ─────────────────────────────────────────────────────────────────
+
+            Vector2Int prevTile = (currentPathIndex > 0) ? currentPath[currentPathIndex - 1] : GetFootTile();
+            int heightDiff = nextTile.y - prevTile.y;
 
             if (showDebugLogs)
             {
-                Debug.Log($"[EmployeeMovement] 타일 이동: {currentTile} -> {nextTile} (높이차: {heightDiff})");
+                Debug.Log($"[EmployeeMovement] 타일 이동: {prevTile} -> {nextTile} (높이차: {heightDiff})");
             }
 
             yield return MoveToTileCoroutine(nextTile, heightDiff);
@@ -534,6 +613,10 @@ public class EmployeeMovement : MonoBehaviour
         float journeyLength = Vector3.Distance(startPos, endPos);
         float startTime = Time.time;
 
+        // 수직 이동(사다리) 및 대각선 상승 이동 시 낙하 판정 비활성화
+        // 이유: Lerp 도중 발 아래 타일이 없는 순간(계단 중간 지점)이 생겨 오탐 낙하가 발생함
+        if (heightDiff > 0) isClimbing = true;
+
         if (showDebugLogs)
         {
             Debug.Log($"[EmployeeMovement] Lerp 이동 시작: {startPos} -> {endPos}, TileToWorld({targetTile}) = {endPos}");
@@ -541,7 +624,9 @@ public class EmployeeMovement : MonoBehaviour
 
         float speedModifier = 1f + Mathf.Abs(heightDiff) * HEIGHT_SPEED_PENALTY;
         float tileSpeedMult = GetTileSpeedMultiplier(targetTile);
-        float actualSpeed = tileTransitionSpeed * tileSpeedMult / speedModifier;
+        float erosionMoveModifier = erosionController != null ? erosionController.MoveSpeedModifier : 1f;
+        float traitMoveModifier   = statsController   != null ? statsController.CachedMoveSpeedModifier : 1f;
+        float actualSpeed = tileTransitionSpeed * tileSpeedMult / speedModifier * erosionMoveModifier * traitMoveModifier;
 
         while (Vector3.Distance(transform.position, endPos) > stoppingDistance)
         {
@@ -558,6 +643,18 @@ public class EmployeeMovement : MonoBehaviour
         }
 
         transform.position = endPos;
+        isClimbing = false; // 타일 이동 완료 → 낙하 판정 복원
+
+        // 새 타일에 도달할 때마다 주변 안개 제거
+        FogOfWarManager.instance?.RevealAround(targetTile);
+
+        // 자연 침식 영향력 적용 (워터마크 방식)
+        if (NaturalErosionManager.instance != null && erosionController != null)
+        {
+            float influence = NaturalErosionManager.instance.GetInfluenceAt(targetTile);
+            if (influence > 0f)
+                erosionController.ApplyNaturalErosion(influence);
+        }
 
         if (showDebugLogs)
         {
@@ -660,7 +757,8 @@ public class EmployeeMovement : MonoBehaviour
             moveCoroutine = null;
         }
 
-        isMoving = false;
+        isMoving  = false;
+        isClimbing = false;
         currentPath = null;
         currentPathIndex = 0;
         onReachDestination = null;
@@ -770,6 +868,70 @@ public class EmployeeMovement : MonoBehaviour
     #endregion
 
     #region 공개 API
+
+    /// <summary>
+    /// 건설이 완료된 건물의 footprint 안에 직원이 갇힌 경우 외부로 밀어냅니다.
+    /// ConstructionSite.CompleteConstruction() 직후 호출됩니다.
+    /// </summary>
+    /// <param name="buildingOrigin">건물 왼쪽 아래 그리드 좌표</param>
+    /// <param name="buildingSize">건물 크기 (타일 단위)</param>
+    public void SnapOutOfBuilding(Vector3Int buildingOrigin, Vector2Int buildingSize)
+    {
+        if (gameMap == null || pathfinder == null) return;
+
+        Vector2Int foot = GetFootTile();
+        bool footInside = IsInsideRect(foot,                              buildingOrigin, buildingSize);
+        bool bodyInside = IsInsideRect(new Vector2Int(foot.x, foot.y + 1), buildingOrigin, buildingSize);
+
+        if (!footInside && !bodyInside) return;
+
+        // 건물 왼쪽 / 오른쪽 중 현재 발에서 더 가까운 쪽부터 시도
+        int leftX  = buildingOrigin.x - 1;
+        int rightX = buildingOrigin.x + buildingSize.x;
+
+        int[] xCandidates = Mathf.Abs(foot.x - leftX) <= Mathf.Abs(foot.x - rightX)
+            ? new[] { leftX, rightX }
+            : new[] { rightX, leftX };
+
+        int searchBottom = buildingOrigin.y - 1;
+        int searchTop    = buildingOrigin.y + buildingSize.y + 1;
+
+        foreach (int x in xCandidates)
+        {
+            if (x < 0 || x >= GameMap.MAP_WIDTH) continue;
+
+            for (int y = foot.y; y >= searchBottom; y--)
+            {
+                if (pathfinder.IsValidPosition(new Vector2Int(x, y)))
+                {
+                    StopMoving();
+                    transform.position = new Vector3(x + 0.5f, y, 0);
+                    Debug.Log($"[EmployeeMovement] 건설 완료 위치 보정: {gameObject.name} {foot} → ({x},{y})");
+                    return;
+                }
+            }
+
+            for (int y = foot.y + 1; y <= searchTop; y++)
+            {
+                if (pathfinder.IsValidPosition(new Vector2Int(x, y)))
+                {
+                    StopMoving();
+                    transform.position = new Vector3(x + 0.5f, y, 0);
+                    Debug.Log($"[EmployeeMovement] 건설 완료 위치 보정(위): {gameObject.name} {foot} → ({x},{y})");
+                    return;
+                }
+            }
+        }
+
+        Debug.LogWarning($"[EmployeeMovement] 건설 완료 위치 보정 실패: {gameObject.name} at {foot}");
+    }
+
+    /// <summary>타일 좌표가 직사각형 영역 안에 있는지 확인합니다.</summary>
+    private bool IsInsideRect(Vector2Int pos, Vector3Int origin, Vector2Int size)
+    {
+        return pos.x >= origin.x && pos.x < origin.x + size.x &&
+               pos.y >= origin.y && pos.y < origin.y + size.y;
+    }
 
     /// <summary>
     /// 현재 위치가 유효하지 않으면 (고체 안에 있으면) 위치를 보정합니다.

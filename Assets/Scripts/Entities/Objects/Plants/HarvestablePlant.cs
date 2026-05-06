@@ -28,6 +28,9 @@ public class HarvestablePlant : MonoBehaviour, IHarvestable, IWorkTarget
     private bool isRegrowing = false;
     private bool isBeingHarvested = false;
 
+    /// <summary>세이브에서 복원된 경우 true — Start()의 랜덤 초기화를 건너뜁니다.</summary>
+    private bool _isRestoredFromSave = false;
+
     /// <summary>성장 진행도 (0~1)</summary>
     public float GrowthProgress => growthTime > 0 ? Mathf.Clamp01(currentGrowth / growthTime) : 1f;
     
@@ -69,12 +72,16 @@ public class HarvestablePlant : MonoBehaviour, IHarvestable, IWorkTarget
     void Start()
     {
         UpdateVisual();
-        
-        // 테스트용: 30% 확률로 이미 수확 가능한 상태로 시작
-        if (Random.Range(0f, 1f) < 0.3f)
+
+        // 세이브 복원 시에는 랜덤 초기화 생략 (RestoreGrowthState에서 이미 설정됨)
+        if (!_isRestoredFromSave)
         {
-            currentGrowth = growthTime;
-            UpdateGrowthStage();
+            // 테스트용: 30% 확률로 이미 수확 가능한 상태로 시작
+            if (Random.Range(0f, 1f) < 0.3f)
+            {
+                currentGrowth = growthTime;
+                UpdateGrowthStage();
+            }
         }
     }
     
@@ -267,6 +274,24 @@ public class HarvestablePlant : MonoBehaviour, IHarvestable, IWorkTarget
     
     #endregion
     
+    /// <summary>
+    /// 세이브에서 성장 상태를 복원합니다.
+    /// Instantiate 직후, Start() 실행 전에 호출해야 합니다.
+    /// </summary>
+    /// <param name="growthProgress">저장된 성장 진행도 (0~1)</param>
+    public void RestoreGrowthState(float growthProgress)
+    {
+        _isRestoredFromSave = true;
+        currentGrowth = Mathf.Clamp01(growthProgress) * growthTime;
+
+        // 기본 성장 단계가 없으면 먼저 설정 (Awake에서 이미 처리됐을 수 있음)
+        if (growthStages.Count == 0) SetupDefaultGrowthStages();
+        UpdateGrowthStage();
+
+        // spriteRenderer는 Awake()에서 이미 할당됨
+        if (spriteRenderer != null) UpdateVisual();
+    }
+
     private void StartRegrowth()
     {
         currentGrowth = 0f;

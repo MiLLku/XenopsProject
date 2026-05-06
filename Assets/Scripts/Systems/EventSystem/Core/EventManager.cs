@@ -528,6 +528,66 @@ public class EventManager : DestroySingleton<EventManager>, ISaveModule
 
     #region 에디터 테스트
 
+    /// <summary>
+    /// XenopsAppearance 카테고리 이벤트 중 하나를 랜덤으로 발생시킵니다.
+    /// 해당 카테고리 이벤트가 없으면 직접 제노프스를 랜덤 스폰합니다.
+    /// </summary>
+    public void TriggerXenopsSpawnEvent()
+    {
+        var xenopsEvents = allEvents
+            .Where(e => e.category == EventCategory.XenopsAppearance && CanTriggerEvent(e))
+            .ToList();
+
+        if (xenopsEvents.Count > 0)
+        {
+            int totalWeight = xenopsEvents.Sum(e => e.weight);
+            int rand = UnityEngine.Random.Range(0, totalWeight);
+            int cumulative = 0;
+            foreach (var evt in xenopsEvents)
+            {
+                cumulative += evt.weight;
+                if (rand < cumulative)
+                {
+                    TriggerEvent(evt);
+                    return;
+                }
+            }
+            TriggerEvent(xenopsEvents.Last());
+        }
+        else
+        {
+            // 등록된 Xenops 이벤트가 없으면 GameDatabase에서 랜덤 스폰
+            SpawnRandomXenopsFallback();
+        }
+    }
+
+    private void SpawnRandomXenopsFallback()
+    {
+        if (XenopsManager.instance == null || GameDatabase.Instance == null)
+        {
+            Debug.LogWarning("[EventManager] XenopsManager 또는 GameDatabase가 없어 제노프스를 스폰할 수 없습니다.");
+            return;
+        }
+
+        var allXenopsData = GameDatabase.Instance.allXenopsData;
+        if (allXenopsData == null || allXenopsData.Count == 0)
+        {
+            Debug.LogWarning("[EventManager] GameDatabase에 등록된 XenopsData가 없습니다.");
+            return;
+        }
+
+        var xenopsData = allXenopsData[UnityEngine.Random.Range(0, allXenopsData.Count)];
+        Vector3 spawnPos = Vector3.zero;
+        if (Camera.main != null)
+        {
+            Vector3 cam = Camera.main.transform.position;
+            spawnPos = new Vector3(cam.x + UnityEngine.Random.Range(-8f, 8f), cam.y + UnityEngine.Random.Range(-3f, 3f), 0f);
+        }
+
+        XenopsManager.instance.SpawnXenops(xenopsData, spawnPos);
+        Debug.Log($"[EventManager] 제노프스 등장 (폴백): {xenopsData.xenopsName}");
+    }
+
     [ContextMenu("Trigger Random Event")]
     private void TestTriggerRandomEvent()
     {

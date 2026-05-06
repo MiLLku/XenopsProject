@@ -17,5 +17,13 @@ public enum UIPanelType
     /// <summary>건설 메뉴</summary>
     ConstructionUI,
     /// <summary>생산 건물 레시피 UI</summary>
-    ProductionUI
+    ProductionUI,
+    /// <summary>연구 작업대 상태/제어 UI</summary>
+    ResearchWorkbenchUI,
+
+    /// <summary>직원 스킬 트리 패널</summary>
+    SkillTreeUI,
+
+    /// <summary>직원 채용 패널</summary>
+    HiringUI,
 }

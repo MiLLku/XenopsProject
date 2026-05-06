@@ -357,96 +357,232 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>, ISaveModul
     #endregion
     
     #region 작업 할당
-    
+
     /// <summary>
-    /// 플레이어가 특정 직원을 특정 작업물에 수동으로 할당합니다.
+    /// AI가 호출: 직원에게 적합한 작업을 자동으로 찾아 할당합니다.
+    /// workZoneId가 유효하면 해당 구역 내 태스크를 우선 탐색합니다.
+    /// 구역 내 태스크가 없으면 구역 미할당 상태에서 전체 탐색으로 fallback합니다.
+    /// </summary>
+    public bool TryAssignWorkToEmployee(Employee employee, int workZoneId = -1)
+    {
+        if (employee == null)
+        {
+            if (showDebugInfo) Debug.LogWarning("[WorkSystemManager] TryAssign 실패: employee=null");
+            return false;
+        }
+        if (!employee.IsAvailableForWork)
+        {
+            if (showDebugInfo)
+                Debug.Log($"[WorkSystemManager] TryAssign 스킵 ({employee.Data?.employeeName}): " +
+                          $"IsAvailableForWork=false, state={employee.State}");
+            return false;
+        }
+        if (employeeToOrderMap.ContainsKey(employee))
+        {
+            if (showDebugInfo)
+                Debug.Log($"[WorkSystemManager] TryAssign 스킵 ({employee.Data?.employeeName}): " +
+                          $"이미 작업 중 (order='{employeeToOrderMap[employee].orderName}')");
+            return false;
+        }
+
+        List<WorkType> enabledTypes = employee.GetEnabledWorkTypes();
+        if (showDebugInfo)
+        {
+            Debug.Log($"[WorkSystemManager] {employee.Data?.employeeName} 작업 할당 시작. " +
+                      $"활성화된 작업: [{string.Join(",", enabledTypes)}], 전체 작업물 수={allOrders.Count}");
+        }
+
+        // 구역 지정: 구역 내 태스크 우선 시도
+        Zone workZone = (workZoneId >= 0 && ZoneManager.instance != null)
+            ? ZoneManager.instance.GetZone(workZoneId)
+            : null;
+
+        if (workZone != null)
+        {
+            if (TryAssignInZone(employee, enabledTypes, workZone))
+                return true;
+            // 구역 내 작업 없음 → fallback
+            if (showDebugInfo)
+                Debug.Log($"[WorkSystemManager] 구역 내 작업 없음 → 전체 탐색으로 fallback");
+        }
+
+        // 전체 탐색 (구역 미지정 또는 구역 내 작업 없음)
+        return TryAssignGlobal(employee, enabledTypes);
+    }
+
+    /// <summary>구역 내 태스크만 대상으로 할당을 시도합니다.</summary>
+    private bool TryAssignInZone(Employee employee, List<WorkType> enabledTypes, Zone zone)
+    {
+        var candidates = GetCandidateOrders(employee, enabledTypes).ToList();
+        if (showDebugInfo)
+            Debug.Log($"[WorkSystemManager] 구역 내 후보 작업물 수={candidates.Count}");
+
+        foreach (var order in candidates)
+        {
+            // 작업물 내에 구역 내 태스크가 하나라도 있는지 확인
+            int zoneTaskCount = order.GetPendingTasksInZone(zone).Count;
+            if (zoneTaskCount == 0)
+            {
+                if (showDebugInfo)
+                    Debug.Log($"[WorkSystemManager]   '{order.orderName}': 구역 내 태스크 없음, 스킵");
+                continue;
+            }
+
+            if (AssignEmployeeToOrderInZone(employee, order, zone))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>전체 작업물에서 할당을 시도합니다.</summary>
+    private bool TryAssignGlobal(Employee employee, List<WorkType> enabledTypes)
+    {
+        var candidates = GetCandidateOrders(employee, enabledTypes).ToList();
+        if (showDebugInfo)
+            Debug.Log($"[WorkSystemManager] 전체 후보 작업물 수={candidates.Count}");
+
+        if (candidates.Count == 0)
+        {
+            if (showDebugInfo)
+            {
+                // 후보가 0인 이유 추적 (어떤 작업물이 왜 걸러졌는지)
+                foreach (var order in allOrders)
+                {
+                    string reason = "";
+                    if (!enabledTypes.Contains(order.workType)) reason += $"타입{order.workType}활성안됨,";
+                    if (!order.isActive) reason += "비활성,";
+                    if (order.isPaused) reason += "일시정지,";
+                    if (!order.CanAssignWorker()) reason += $"할당불가(pending={order.taskQueue.PendingCount},workers={order.assignedWorkers.Count}/{order.maxAssignedWorkers}),";
+                    if (!string.IsNullOrEmpty(reason))
+                        Debug.Log($"[WorkSystemManager]   '{order.orderName}' 제외: {reason}");
+                }
+            }
+            return false;
+        }
+
+        foreach (var order in candidates)
+        {
+            if (AssignEmployeeToOrder(employee, order))
+                return true;
+        }
+
+        if (showDebugInfo)
+            Debug.LogWarning($"[WorkSystemManager] {employee.Data?.employeeName}: 모든 후보 작업물 할당 실패");
+        return false;
+    }
+
+    /// <summary>
+    /// 할당 가능한 후보 작업물을 우선순위순으로 반환합니다.
+    /// - 자동 픽업 작업(채광/건설/벌목 등): 자격 직원이면 모두 후보.
+    /// - 전용 할당 작업(연구/제작 등): 미리 명시적으로 등록된 직원만 후보.
+    /// </summary>
+    private IEnumerable<WorkOrder> GetCandidateOrders(Employee employee, List<WorkType> enabledTypes)
+    {
+        return enabledTypes
+            .Where(t => employee.CanPerformWork(t))
+            .SelectMany(t => allOrders.Where(o =>
+                o.workType == t && o.isActive && !o.isPaused && o.CanAssignWorker() &&
+                // 전용 할당 작업물은 사전 등록된 직원만 자격을 가짐
+                (o.IsAutoPickup || o.IsWorkerAssigned(employee))
+            ))
+            .OrderBy(o => o.priority)
+            .ThenBy(o => o.createdTime);
+    }
+
+    /// <summary>
+    /// 플레이어가 특정 직원을 특정 작업물에 수동으로 할당합니다 (구역 필터 없음).
     /// </summary>
     public bool AssignEmployeeToOrder(Employee employee, WorkOrder order)
+        => AssignEmployeeToOrderInZone(employee, order, null);
+
+    /// <summary>
+    /// 특정 직원을 특정 작업물에 할당합니다.
+    /// zone이 null이 아니면 구역 내 태스크만 선택합니다.
+    ///
+    /// 직원이 이미 다른 작업물에 할당되어 있으면, 이전 할당을 완전히 정리한 후 새 작업물에 할당합니다.
+    /// (이전 작업물의 assignedWorkers에 ghost 직원이 남는 버그 방지)
+    /// </summary>
+    public bool AssignEmployeeToOrderInZone(Employee employee, WorkOrder order, Zone zone)
     {
         if (employee == null || order == null)
         {
             Debug.LogWarning("[WorkSystemManager] 직원 또는 작업물이 null입니다.");
             return false;
         }
-        
-        // 직원이 해당 작업을 수행할 수 있는지 확인
+
         if (!employee.CanPerformWork(order.workType))
         {
-            Debug.LogWarning($"[WorkSystemManager] {employee.Data.employeeName}은(는) {order.workType} 작업을 수행할 수 없습니다.");
+            Debug.LogWarning($"[WorkSystemManager] {employee.Data?.employeeName}: " +
+                $"{order.workType} 작업 수행 불가 (CanPerformWork=false). " +
+                $"work={employee.GetComponent<EmployeeWork>() != null}, " +
+                $"state={employee.State}");
             return false;
         }
-        
-        // 작업물에 더 이상 작업자를 할당할 수 없는 경우
+
         if (!order.CanAssignWorker())
         {
-            Debug.LogWarning($"[WorkSystemManager] 작업물 '{order.orderName}'에 더 이상 작업자를 할당할 수 없습니다.");
+            Debug.LogWarning($"[WorkSystemManager] '{order.orderName}' CanAssignWorker=false. " +
+                $"isActive={order.isActive}, isPaused={order.isPaused}, " +
+                $"pendingTasks={order.taskQueue.PendingCount}, " +
+                $"workers={order.assignedWorkers.Count}/{order.maxAssignedWorkers}, " +
+                $"autoPickup={order.IsAutoPickup}");
             return false;
         }
-        
-        // 직원이 이미 다른 작업 중이면 취소
-        if (employee.State == EmployeeState.Working)
-        {
-            employee.CancelWork();
-        }
-        
-        // 작업물에 직원 등록
-        if (!order.AssignWorker(employee))
-        {
-            return false;
-        }
-        
-        // 매핑 저장
-        employeeToOrderMap[employee] = order;
-        
-        // 큐에서 다음 작업 할당
-        if (AssignNextTaskFromQueue(employee, order))
+
+        // 이미 다른 작업물에 매핑되어 있으면 완전히 정리 (ghost 매핑 방지)
+        if (employeeToOrderMap.TryGetValue(employee, out WorkOrder previousOrder) && previousOrder != order)
         {
             if (showDebugInfo)
-            {
-                Debug.Log($"[WorkSystemManager] {employee.Data.employeeName}을(를) '{order.orderName}'에 할당 완료");
-            }
+                Debug.Log($"[WorkSystemManager] {employee.Data?.employeeName}: 이전 작업물 '{previousOrder.orderName}' 정리 후 '{order.orderName}'으로 재할당");
+            UnassignEmployee(employee);
+        }
+
+        // 현재 진행 중인 작업이 있으면 취소 (Working/Moving 모두)
+        if (employee.State == EmployeeState.Working || employee.State == EmployeeState.Moving)
+            employee.CancelWork();
+
+        if (!order.AssignWorker(employee))
+            return false;
+
+        employeeToOrderMap[employee] = order;
+
+        if (AssignNextTaskFromQueue(employee, order, zone))
+        {
+            if (showDebugInfo)
+                Debug.Log($"[WorkSystemManager] {employee.Data.employeeName} → '{order.orderName}' 할당 완료");
             return true;
         }
-        else
-        {
-            // 할당 실패 시 롤백
-            order.UnassignWorker(employee);
-            employeeToOrderMap.Remove(employee);
-            return false;
-        }
+
+        // 태스크 할당 실패 시 롤백
+        order.UnassignWorker(employee);
+        employeeToOrderMap.Remove(employee);
+        return false;
     }
-    
+
     /// <summary>
     /// 작업물의 큐에서 직원에게 다음 작업을 할당합니다.
+    /// zone이 null이 아니면 구역 내 태스크만 선택합니다.
     /// </summary>
-    private bool AssignNextTaskFromQueue(Employee worker, WorkOrder order)
+    private bool AssignNextTaskFromQueue(Employee worker, WorkOrder order, Zone zone = null)
     {
-        // 큐에서 가장 적합한 작업 가져오기
-        WorkTask task = order.AssignNextTaskToWorker(worker);
-        
+        WorkTask task = zone != null
+            ? order.AssignNextTaskToWorkerInZone(worker, zone)
+            : order.AssignNextTaskToWorker(worker);
+
         if (task == null)
         {
             if (showDebugInfo)
-            {
-                Debug.LogWarning($"[WorkSystemManager] 작업물 '{order.orderName}'에 할당 가능한 작업이 없습니다.");
-            }
+                Debug.LogWarning($"[WorkSystemManager] '{order.orderName}'에 할당 가능한 작업 없음{(zone != null ? " (구역 내)" : "")}");
             return false;
         }
-        
-        // 작업 매핑 저장
+
         employeeToTaskMap[worker] = task;
-        
-        // 작업 시작
         task.Start();
-        
+
         if (showDebugInfo)
-        {
-            Debug.Log($"[WorkSystemManager] {worker.Data.employeeName}에게 작업 할당: Task {task.taskId} at {task.GetPosition()}");
-        }
-        
-        // 직원에게 실제 작업 할당
+            Debug.Log($"[WorkSystemManager] {worker.Data.employeeName} → Task {task.taskId} @ {task.GetPosition()}");
+
         worker.AssignWork(order, task.target);
-        
         return true;
     }
     
@@ -549,8 +685,11 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>, ISaveModul
                 {
                     int groundTileId = gameMap.TileGrid[groundTile.x, groundTile.y];
                     bool hasFloor = FloorTile.HasFloorTileAt(groundTile);
-                    
-                    if (groundTileId == 0 && !hasFloor)
+                    // 건설된 바닥 타일도 지면으로 인정 (TileGrid엔 없지만 OccupiedGrid에 있음)
+                    bool hasConstructedFloor = gameMap.IsTileOccupied(groundTile.x, groundTile.y)
+                                              && !gameMap.DoesTileBlockMovement(groundTile.x, groundTile.y);
+
+                    if (groundTileId == 0 && !hasFloor && !hasConstructedFloor)
                     {
                         needsToWaitForLanding = true;
                         Debug.Log($"[WorkSystemManager] {worker.Data.employeeName}: 발 아래 바닥 없음! ({groundTile})");
@@ -580,6 +719,7 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>, ISaveModul
                     order.UnassignWorker(worker);
                     employeeToOrderMap.Remove(worker);
                     employeeToTaskMap.Remove(worker);
+                    worker.SetState(EmployeeState.Idle);
                 }
             };
             movement.OnLanded += onLandedHandler;
@@ -679,7 +819,7 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>, ISaveModul
     private void OnWorkerToggled(Employee employee)
     {
         if (currentUIOrder == null) return;
-        
+
         if (currentUIOrder.IsWorkerAssigned(employee))
         {
             // 할당 해제
@@ -687,8 +827,11 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>, ISaveModul
         }
         else
         {
-            // 할당 시도
-            if (currentUIOrder.assignedWorkers.Count < currentUIOrder.maxAssignedWorkers)
+            // 자동 픽업 작업물은 maxAssignedWorkers 제한 없음
+            bool canAdd = currentUIOrder.IsAutoPickup ||
+                          currentUIOrder.assignedWorkers.Count < currentUIOrder.maxAssignedWorkers;
+
+            if (canAdd)
             {
                 bool success = AssignEmployeeToOrder(employee, currentUIOrder);
                 if (!success)
@@ -701,7 +844,7 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>, ISaveModul
                 Debug.Log("[WorkSystemManager] 인원 가득 참");
             }
         }
-        
+
         // UI 갱신
         workAssignmentPanel?.RefreshUI();
     }
@@ -1170,7 +1313,7 @@ public class WorkSystemManager : DestroySingleton<WorkSystemManager>, ISaveModul
     private IHarvestable FindHarvestableAtPosition(int x, int y)
     {
         // 씬 내 모든 IHarvestable 검색
-        var allHarvestables = UnityEngine.Object.FindObjectsOfType<MonoBehaviour>();
+        var allHarvestables = UnityEngine.Object.FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None);
         foreach (var mb in allHarvestables)
         {
             if (!(mb is IHarvestable harvestable)) continue;

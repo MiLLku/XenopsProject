@@ -57,6 +57,15 @@ public class SaveData
     /// <summary>이벤트 시스템 데이터</summary>
     public EventSystemSaveData eventSystem;
 
+    /// <summary>침식 시스템 전역 상태</summary>
+    public ErosionSystemSaveData erosionSystem;
+
+    /// <summary>레이드 시스템 상태</summary>
+    public RaidSystemSaveData raidSystem;
+
+    /// <summary>연구 포인트 누적량</summary>
+    public float researchPoints;
+
     /// <summary>다음 발급할 인스턴스 ID (로드 후 이어서 발급)</summary>
     public int nextInstanceId;
 
@@ -65,6 +74,15 @@ public class SaveData
 
     /// <summary>다음 작업 Task ID (WorkTask.nextTaskId)</summary>
     public int nextTaskId;
+
+    /// <summary>구역 시스템 데이터</summary>
+    public ZoneManagerSaveData zoneSystem;
+
+    /// <summary>게임 시간 데이터</summary>
+    public DayCycleSaveData dayCycle;
+
+    /// <summary>전쟁의 안개 탐색 상태</summary>
+    public FogSaveData fog;
 
     #endregion
 

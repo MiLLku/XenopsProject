@@ -19,6 +19,9 @@ public enum EmployeeState
     /// <summary>식사 중</summary>
     Eating,
 
+    /// <summary>소집 상태 (플레이어 직접 조작)</summary>
+    Drafted,
+
     /// <summary>정신 붕괴 상태</summary>
     MentalBreak,
 

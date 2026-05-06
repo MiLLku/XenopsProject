@@ -168,12 +168,12 @@ public static class EventConditionEvaluator
 
     private static int GetBuildingCount()
     {
-        return GameObject.FindObjectsOfType<Building>().Length;
+        return UnityEngine.Object.FindObjectsByType<Building>(FindObjectsSortMode.None).Length;
     }
 
     private static int GetConstructionCount()
     {
-        return GameObject.FindObjectsOfType<ConstructionSite>().Length;
+        return UnityEngine.Object.FindObjectsByType<ConstructionSite>(FindObjectsSortMode.None).Length;
     }
 
     private static int GetDayNumber()

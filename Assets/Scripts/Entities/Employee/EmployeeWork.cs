@@ -47,6 +47,9 @@ public class EmployeeWork : MonoBehaviour
     /// <summary>현재 작업 타입</summary>
     private WorkType currentWork = WorkType.None;
 
+    /// <summary>현재 연구 중인 작업대 (연구 코루틴 종료/취소 시 알림용)</summary>
+    private ResearchWorkbench currentResearchBench;
+
     /// <summary>현재 작업 진행도 (0~1)</summary>
     private float workProgress = 0f;
 
@@ -62,6 +65,7 @@ public class EmployeeWork : MonoBehaviour
     private EmployeeMovement movement;
     private EmployeeMental mental;
     private EmployeeGrowth growth;
+    private EmployeeErosionController erosionController;
 
     #endregion
 
@@ -106,6 +110,7 @@ public class EmployeeWork : MonoBehaviour
         movement = GetComponent<EmployeeMovement>();
         mental = GetComponent<EmployeeMental>();
         growth = GetComponent<EmployeeGrowth>();
+        erosionController = GetComponent<EmployeeErosionController>();
     }
 
     /// <summary>
@@ -256,8 +261,9 @@ public class EmployeeWork : MonoBehaviour
         float fatigueModifier = statsController != null ? statsController.GetFatigueModifier() : 1f;
         float globalModifier = statsController != null ? statsController.CachedWorkSpeedModifier : 1f;
         float mentalModifier = mental != null ? mental.GetActiveSpeedModifier() : 1f;
+        float erosionModifier = erosionController != null ? erosionController.WorkSpeedModifier : 1f;
 
-        return baseSpeed * traitModifier * fatigueModifier * globalModifier * mentalModifier;
+        return baseSpeed * traitModifier * fatigueModifier * globalModifier * mentalModifier * erosionModifier;
     }
 
     /// <summary>
@@ -332,7 +338,13 @@ public class EmployeeWork : MonoBehaviour
 
         bool inRange = IsPositionInWorkRange(targetTilePos);
 
-        if (inRange)
+        // 사정거리 안이더라도 현재 위치가 이동 차단 타일(청사진·건물) 안이면 즉시 작업 불가.
+        // 그대로 StartWork를 호출하면 건설 완료 시 건물 내부에 갇히므로 안전한 위치로 이동 후 작업.
+        //
+        // 추가: 직원의 발/몸통이 건설 대상 타일의 footprint와 겹쳐도 즉시 작업 불가.
+        // 이유: 청사진은 blocksMovement=false 이므로 IsCurrentPositionBlocked()가 false를 반환하지만,
+        //       건설 완료 시 해당 위치에 건물이 스폰되어 직원이 그 안에 파묻히는 버그가 발생합니다.
+        if (inRange && !IsCurrentPositionBlocked() && !IsStandingInsideBuildingFootprint(targetTilePos, target))
         {
             StartWork(target);
         }
@@ -382,16 +394,22 @@ public class EmployeeWork : MonoBehaviour
                                     if (IsPositionInWorkRange(targetTilePos))
                                         StartWork(target);
                                     else
+                                    {
+                                        Debug.LogWarning($"[Work] {employee.DisplayName}: 재이동 후에도 작업 범위 밖, 작업 취소");
                                         CancelWork();
+                                    }
                                 },
                                 onFailed: () =>
                                 {
+                                    Debug.LogWarning($"[Work] {employee.DisplayName}: 재이동 실패, Idle 전환 " +
+                                                     $"(target={targetTilePos}, retryPos={newWorkPosition})");
                                     employee.SetState(EmployeeState.Idle);
                                 }
                             );
                         }
                         else
                         {
+                            Debug.LogWarning($"[Work] {employee.DisplayName}: 착지 후 새 작업 위치 없음, 작업 취소");
                             CancelWork();
                         }
                     }
@@ -407,16 +425,22 @@ public class EmployeeWork : MonoBehaviour
                         if (IsPositionInWorkRange(targetTilePos))
                             StartWork(target);
                         else
+                        {
+                            Debug.LogWarning($"[Work] {employee.DisplayName}: 도착 후 작업 범위 밖, 취소 " +
+                                             $"(foot={GetFootTile()}, target={targetTilePos})");
                             CancelWork();
+                        }
                     },
                     onFailed: () =>
                     {
-                        Debug.LogWarning($"[Work] {employee.DisplayName}: 이동 실패 (낙하 시 재시도 대기)");
+                        Debug.LogWarning($"[Work] {employee.DisplayName}: 이동 실패 - 경로 없음 또는 차단됨 " +
+                                         $"(start={GetFootTile()}, dest={workPosition}, target={targetTilePos})");
                     }
                 );
             }
             else
             {
+                Debug.LogWarning($"[Work] {employee.DisplayName}: movement 컴포넌트 없음, 작업 취소");
                 CancelWork();
             }
         }
@@ -463,6 +487,114 @@ public class EmployeeWork : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 연구 작업을 할당합니다 (연구 작업대 전용).
+    /// 직원이 workPosition으로 이동 후 연구 코루틴을 시작합니다.
+    /// </summary>
+    /// <param name="bench">연구할 작업대</param>
+    /// <param name="workPos">이동할 작업 위치</param>
+    public void AssignResearchWork(ResearchWorkbench bench, Vector3 workPos)
+    {
+        if (bench == null) return;
+        if (employee.State == EmployeeState.Dead || employee.State == EmployeeState.MentalBreak) return;
+
+        if (currentWorkTarget != null)
+        {
+            CancelWork();
+        }
+        // 연구 벤치는 IWorkTarget을 사용하지 않으므로 별도 필드에 저장
+        currentResearchBench = bench;
+        currentWork = WorkType.Research;
+
+        if (movement != null)
+        {
+            employee.SetState(EmployeeState.Moving);
+
+            movement.MoveTo(workPos,
+                onComplete: () =>
+                {
+                    if (currentResearchBench == bench)
+                        StartResearchWork(bench);
+                },
+                onFailed: () =>
+                {
+                    CancelWork();
+                }
+            );
+        }
+        else
+        {
+            StartResearchWork(bench);
+        }
+    }
+
+    private void StartResearchWork(ResearchWorkbench bench)
+    {
+        if (bench == null || !bench.IsWorkAvailable())
+        {
+            // 도착했는데 벤치가 이미 중단됨
+            currentResearchBench = null;
+            currentWork = WorkType.None;
+            employee.SetState(EmployeeState.Idle);
+            return;
+        }
+
+        employee.SetState(EmployeeState.Working);
+        currentWork = WorkType.Research;
+        workProgress = 0f;
+
+        currentWorkCoroutine = StartCoroutine(ResearchWorkCoroutine(bench));
+    }
+
+    private System.Collections.IEnumerator ResearchWorkCoroutine(ResearchWorkbench bench)
+    {
+        float visualTimer = 0f;
+        const float VISUAL_CYCLE = 10f;   // 진행 바 1사이클 시간 (초)
+        float xpAccumulator = 0f;
+        const float XP_INTERVAL = 5f;     // XP 지급 주기 (초)
+
+        while (bench != null &&
+               bench.IsWorkAvailable() &&
+               employee.State == EmployeeState.Working)
+        {
+            float speed = GetWorkSpeed(WorkType.Research);
+            if (speed <= 0f)
+            {
+                Debug.LogWarning($"[EmployeeWork] {employee.DisplayName}: 연구 속도 0 이하, 연구 중단");
+                break;
+            }
+
+            // 연구 포인트 누적
+            bench.OnResearchTick(speed, Time.deltaTime);
+
+            // 경험치 주기적 지급
+            xpAccumulator += Time.deltaTime;
+            if (xpAccumulator >= XP_INTERVAL)
+            {
+                if (growth != null) growth.GainExperience(Mathf.CeilToInt(XP_INTERVAL * speed));
+                xpAccumulator -= XP_INTERVAL;
+            }
+
+            // 시각적 진행도 (무한 반복 사이클)
+            visualTimer += Time.deltaTime;
+            workProgress = (visualTimer % VISUAL_CYCLE) / VISUAL_CYCLE;
+
+            yield return null;
+        }
+
+        // 코루틴이 자연 종료될 때 벤치에 알림
+        if (currentResearchBench != null)
+        {
+            currentResearchBench.OnWorkerLeft();
+            currentResearchBench = null;
+        }
+
+        currentWork = WorkType.None;
+        workProgress = 0f;
+        currentWorkCoroutine = null;
+        employee.SetState(EmployeeState.Idle);
+    }
+
     private void StartWork(IWorkTarget target)
     {
         if (target == null || !target.IsWorkAvailable())
@@ -496,6 +628,12 @@ public class EmployeeWork : MonoBehaviour
 
             if (employee.State != EmployeeState.Working || !target.IsWorkAvailable())
             {
+                // 작업이 중단된 사유 명확히 로깅
+                string reason = (employee.State != EmployeeState.Working)
+                    ? $"State 변경됨 (현재={employee.State})"
+                    : "Target.IsWorkAvailable=false (이미 처리되었거나 무효화됨)";
+                Debug.LogWarning($"[Work] {employee.DisplayName}: 작업 중단 → {reason} " +
+                                 $"(progress={workProgress:F2}, target={target.GetWorkType()}@{target.GetWorkPosition()})");
                 CancelWork();
                 yield break;
             }
@@ -601,6 +739,13 @@ public class EmployeeWork : MonoBehaviour
             currentWorkCoroutine = null;
         }
 
+        // 연구 작업대는 IWorkTarget이 아니므로 별도로 알림
+        if (currentResearchBench != null)
+        {
+            currentResearchBench.OnWorkerLeft();
+            currentResearchBench = null;
+        }
+
         if (currentWorkTarget != null)
         {
             currentWorkTarget.CancelWork(employee);
@@ -641,7 +786,8 @@ public class EmployeeWork : MonoBehaviour
 
     public List<WorkType> GetEnabledWorkTypes()
     {
-        if (workPriorities == null) return new List<WorkType>();
+        if (workPriorities == null)
+            InitializeWorkPriorities();
 
         return workPriorities
             .Where(w => w.enabled && CanPerformWork(w.workType))
@@ -670,7 +816,7 @@ public class EmployeeWork : MonoBehaviour
         int dx = Mathf.Abs(targetPosition.x - standingTile.x);
         int dy = targetPosition.y - standingTile.y;
 
-        bool inRange = dx <= 1 && dy >= -1 && dy <= 3;
+        bool inRange = dx <= 1 && dy >= -1 && dy <= 2;
 
         if (!inRange) return false;
 
@@ -689,7 +835,7 @@ public class EmployeeWork : MonoBehaviour
 
         for (int dx = -1; dx <= 1; dx++)
         {
-            for (int dy = -1; dy <= 3; dy++)
+            for (int dy = -1; dy <= 2; dy++)
             {
                 Vector3Int targetPos = footPosition + new Vector3Int(dx, dy, 0);
 
@@ -763,6 +909,60 @@ public class EmployeeWork : MonoBehaviour
         return gameMap.TileGrid[x, y] != 0;
     }
 
+    /// <summary>
+    /// 현재 직원의 발·몸통 위치에 이동 차단 타일(청사진·완공 건물)이 있는지 확인합니다.
+    /// 이 상태에서 그대로 작업을 시작하면 건설 완료 후 건물 내부에 갇힐 수 있으므로,
+    /// AssignWork에서 즉시 StartWork를 건너뛰고 안전한 위치로 이동하도록 강제합니다.
+    /// </summary>
+    private bool IsCurrentPositionBlocked()
+    {
+        GameMap gameMap = MapGenerator.instance?.GameMapInstance;
+        if (gameMap == null) return false;
+
+        Vector3Int foot = GetFootTile();
+
+        if (foot.x < 0 || foot.x >= GameMap.MAP_WIDTH ||
+            foot.y < 0 || foot.y >= GameMap.MAP_HEIGHT)
+            return false;
+
+        // 발 타일이 이동 차단이면 직접 막힌 것 (청사진·벽 안)
+        if (gameMap.DoesTileBlockMovement(foot.x, foot.y)) return true;
+
+        // 몸통 타일(foot.y + 1)이 이동 차단이면 건물·청사진 안에 서 있는 것
+        if (foot.y + 1 < GameMap.MAP_HEIGHT &&
+            gameMap.DoesTileBlockMovement(foot.x, foot.y + 1)) return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// 직원의 발 또는 몸통이 건설 대상 건물의 footprint 안에 있는지 확인합니다.
+    ///
+    /// 청사진은 blocksMovement=false로 등록되므로 IsCurrentPositionBlocked()가 잡지 못합니다.
+    /// 그러나 건설이 완료되면 해당 위치에 실제 건물이 스폰되기 때문에,
+    /// 직원이 footprint 안에서 작업을 시작하면 완공 순간 건물 내부에 파묻히는 버그가 발생합니다.
+    /// 이를 방지하기 위해 겹치는 경우 반드시 이동 후 작업하도록 강제합니다.
+    /// </summary>
+    private bool IsStandingInsideBuildingFootprint(Vector3Int targetTilePos, IWorkTarget target)
+    {
+        // BuildOrder에서 건물 크기 추출 (기본 1×1)
+        Vector2Int size = Vector2Int.one;
+        if (target is BuildOrder buildOrder && buildOrder.buildingData != null)
+            size = buildOrder.buildingData.size;
+
+        Vector3Int foot = GetFootTile();
+
+        // X축 겹침: 발이 footprint X 범위 안에 있는지
+        bool xInside = foot.x >= targetTilePos.x && foot.x < targetTilePos.x + size.x;
+        if (!xInside) return false;
+
+        // Y축 겹침: 발(foot.y) 또는 몸통(foot.y + 1) 중 하나라도 footprint Y 범위 안이면 겹침
+        bool footYInside = foot.y >= targetTilePos.y && foot.y < targetTilePos.y + size.y;
+        bool bodyYInside = (foot.y + 1) >= targetTilePos.y && (foot.y + 1) < targetTilePos.y + size.y;
+
+        return footYInside || bodyYInside;
+    }
+
     #endregion
 
     #region 작업 위치 탐색
@@ -796,7 +996,21 @@ public class EmployeeWork : MonoBehaviour
             }
         }
 
-        if (pathfinder == null || gameMap == null) return Vector3.zero;
+        if (pathfinder == null || gameMap == null)
+        {
+            Debug.LogWarning($"[Work] {employee?.DisplayName}: FindWorkablePosition 실패 - " +
+                             $"pathfinder={pathfinder != null}, gameMap={gameMap != null}");
+            return Vector3.zero;
+        }
+
+        // 디버그 카운터: 어느 단계에서 후보가 걸러지는지 추적
+        int rejectedOutOfBounds = 0;
+        int rejectedOutOfRange = 0;
+        int rejectedFootBlocked = 0;
+        int rejectedBodyBlocked = 0;
+        int rejectedNoGround = 0;
+        int rejectedSamePos = 0;
+        int rejectedNoPath = 0;
 
         List<WorkPositionCandidate> candidates = new List<WorkPositionCandidate>();
 
@@ -814,29 +1028,38 @@ public class EmployeeWork : MonoBehaviour
 
                 if (candidatePos.x < 0 || candidatePos.x >= GameMap.MAP_WIDTH ||
                     candidatePos.y < 0 || candidatePos.y >= GameMap.MAP_HEIGHT)
-                    continue;
+                { rejectedOutOfBounds++; continue; }
 
                 int workDx = Mathf.Abs(targetTilePos.x - candidatePos.x);
                 int workDy = targetTilePos.y - candidatePos.y;
-                if (workDx > 1 || workDy < -1 || workDy > 3)
-                    continue;
+                if (workDx > 1 || workDy < -1 || workDy > 2)
+                { rejectedOutOfRange++; continue; }
 
                 int footTileId = gameMap.TileGrid[candidatePos.x, candidatePos.y];
-                if (footTileId != 0) continue;
+                if (footTileId != 0) { rejectedFootBlocked++; continue; }
+                // TileGrid=0이어도 청사진·건물이 이동을 차단하는 타일은 서 있을 수 없음
+                // (예: 완공 전 청사진 footprint, blocksMovement=true 건물)
+                if (gameMap.DoesTileBlockMovement(candidatePos.x, candidatePos.y))
+                { rejectedFootBlocked++; continue; }
 
                 if (candidatePos.y + 1 < GameMap.MAP_HEIGHT)
                 {
                     int bodyTileId = gameMap.TileGrid[candidatePos.x, candidatePos.y + 1];
-                    if (bodyTileId != 0) continue;
+                    if (bodyTileId != 0) { rejectedBodyBlocked++; continue; }
+                    // 몸통 위치도 이동 차단 타일이면 서 있을 수 없음
+                    if (gameMap.DoesTileBlockMovement(candidatePos.x, candidatePos.y + 1))
+                    { rejectedBodyBlocked++; continue; }
                 }
 
                 int groundY = candidatePos.y - 1;
-                if (groundY < 0) continue;
+                if (groundY < 0) { rejectedNoGround++; continue; }
 
                 int groundTileId = gameMap.TileGrid[candidatePos.x, groundY];
                 bool hasFloorTile = FloorTile.HasFloorTileAt(new Vector2Int(candidatePos.x, groundY));
-                bool hasConstructedFloor = gameMap.IsTileOccupied(candidatePos.x, groundY) &&
-                                           !gameMap.DoesTileBlockMovement(candidatePos.x, groundY);
+                // IsFloorSupport는 완공된 바닥 건물만 true — 건설 예정지(blueprint)는 false.
+                // 구식 IsTileOccupied+!BlocksMovement 체크는 blueprint도 true로 잡혀 미완성 타일 위를
+                // 발판으로 오인하는 버그가 있었으므로 IsFloorSupport로 교체합니다.
+                bool hasConstructedFloor = gameMap.IsFloorSupport(candidatePos.x, groundY);
                 bool hasGround = groundTileId != 0 || hasFloorTile || hasConstructedFloor;
 
                 if (!hasGround)
@@ -845,13 +1068,13 @@ public class EmployeeWork : MonoBehaviour
                     FloorTile currentLadder = FloorTile.GetFloorTileAt(candidatePos);
                     bool hasLadder = (ladder != null && ladder.AllowsVerticalMovement()) ||
                                      (currentLadder != null && currentLadder.AllowsVerticalMovement());
-                    if (!hasLadder) continue;
+                    if (!hasLadder) { rejectedNoGround++; continue; }
                 }
 
-                if (candidatePos == startPos) continue;
+                if (candidatePos == startPos) { rejectedSamePos++; continue; }
 
                 List<Vector2Int> path = pathfinder.FindPath(startPos, candidatePos);
-                if (path == null || path.Count == 0) continue;
+                if (path == null || path.Count == 0) { rejectedNoPath++; continue; }
 
                 float distance = Vector2Int.Distance(startPos, candidatePos);
                 int heightDiff = Mathf.Abs(candidatePos.y - currentFootTile.y);
@@ -874,7 +1097,14 @@ public class EmployeeWork : MonoBehaviour
             }
         }
 
-        if (candidates.Count == 0) return Vector3.zero;
+        if (candidates.Count == 0)
+        {
+            Debug.LogWarning($"[Work] {employee?.DisplayName}: 작업 위치 후보 없음 (target={targetTilePos}, start={startPos}). " +
+                             $"기각 사유: 범위밖={rejectedOutOfBounds}, 작업범위밖={rejectedOutOfRange}, " +
+                             $"발막힘={rejectedFootBlocked}, 몸막힘={rejectedBodyBlocked}, " +
+                             $"바닥없음={rejectedNoGround}, 동일위치={rejectedSamePos}, 경로없음={rejectedNoPath}");
+            return Vector3.zero;
+        }
 
         var sortedCandidates = candidates
             .OrderBy(c => c.fallSafety)
@@ -885,6 +1115,9 @@ public class EmployeeWork : MonoBehaviour
             .ToList();
 
         Vector2Int bestPos = sortedCandidates[0].position;
+        if (showDebugInfo)
+            Debug.Log($"[Work] {employee?.DisplayName}: 작업 위치 선정 완료. " +
+                      $"후보={candidates.Count}개, 선택={bestPos} (target={targetTilePos})");
         return new Vector3(bestPos.x + 0.5f, bestPos.y, 0);
     }
 
@@ -945,6 +1178,11 @@ public class EmployeeWork : MonoBehaviour
                     enabled = wp.enabled
                 });
             }
+        }
+        else
+        {
+            // 이전 저장 데이터 호환: workPriorities 없으면 기본값으로 초기화
+            InitializeWorkPriorities();
         }
 
         // 비자격 복원

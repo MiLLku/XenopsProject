@@ -277,19 +277,20 @@ public class Xenops : MonoBehaviour
         SetState(XenopsState.Subdued);
 
         // 드랍 아이템 처리
-        if (xenopsData.subdueDropItemId > 0 && xenopsData.subdueDropAmount > 0)
+        var dropStats = xenopsData.hostileStats;
+        if (dropStats.subdueDropItemId > 0 && dropStats.subdueDropAmount > 0)
         {
             if (InventoryManager.instance != null && GameDatabase.Instance != null)
             {
-                var dropItem = GameDatabase.Instance.GetItemData(xenopsData.subdueDropItemId);
+                var dropItem = GameDatabase.Instance.GetItemData(dropStats.subdueDropItemId);
                 if (dropItem != null)
                 {
-                    InventoryManager.instance.AddItem(dropItem, xenopsData.subdueDropAmount);
-                    Debug.Log($"[Xenops] {DisplayName} 제압 — 아이템 드랍: {dropItem.itemName} x{xenopsData.subdueDropAmount}");
+                    InventoryManager.instance.AddItem(dropItem, dropStats.subdueDropAmount);
+                    Debug.Log($"[Xenops] {DisplayName} 제압 — 아이템 드랍: {dropItem.itemName} x{dropStats.subdueDropAmount}");
                 }
                 else
                 {
-                    Debug.LogWarning($"[Xenops] {DisplayName} 제압 — 드랍 아이템 없음: ID {xenopsData.subdueDropItemId}");
+                    Debug.LogWarning($"[Xenops] {DisplayName} 제압 — 드랍 아이템 없음: ID {dropStats.subdueDropItemId}");
                 }
             }
         }

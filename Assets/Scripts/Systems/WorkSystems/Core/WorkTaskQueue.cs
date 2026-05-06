@@ -192,6 +192,41 @@ public class WorkTaskQueue
 
     #endregion
 
+    /// <summary>
+    /// 특정 구역 내에 위치한 작업 중에서 가장 적합한 작업을 직원에게 할당합니다.
+    /// 벌목/채광 등 작업물이 넓은 범위에 걸쳐 있을 때 구역 내 타겟만 선택합니다.
+    /// </summary>
+    /// <param name="worker">작업을 받을 직원</param>
+    /// <param name="zone">허용 구역 (null이면 전체 탐색)</param>
+    /// <returns>할당된 WorkTask (실패 시 null)</returns>
+    public WorkTask AssignNextTaskInZone(Employee worker, Zone zone)
+    {
+        if (worker == null || pendingTasks.Count == 0) return null;
+        if (zone == null) return AssignNextTask(worker);
+
+        var validInZone = pendingTasks.Where(t =>
+        {
+            if (!t.IsValid()) return false;
+            Vector3 pos = t.GetPosition();
+            var tile = new Vector2Int(Mathf.FloorToInt(pos.x), Mathf.FloorToInt(pos.y));
+            return zone.ContainsTile(tile);
+        }).ToList();
+
+        if (validInZone.Count == 0) return null;
+
+        WorkTask bestTask = MiningSelector.SelectBestTask(worker, validInZone);
+        if (bestTask == null) return null;
+
+        if (bestTask.Assign(worker))
+        {
+            pendingTasks.Remove(bestTask);
+            assignedTasks.Add(bestTask);
+            return bestTask;
+        }
+
+        return null;
+    }
+
     #region 작업 완료/취소
 
     /// <summary>

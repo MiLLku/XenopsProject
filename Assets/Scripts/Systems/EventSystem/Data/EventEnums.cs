@@ -16,7 +16,9 @@ public enum EventCategory
     /// <summary>침략 (적 습격 등)</summary>
     Invasion,
     /// <summary>재해 (화재, 붕괴 등)</summary>
-    Disaster
+    Disaster,
+    /// <summary>제노프스 등장</summary>
+    XenopsAppearance
 }
 
 /// <summary>
@@ -68,7 +70,17 @@ public enum ConditionType
     /// <summary>순수 확률 (0~100)</summary>
     RandomChance,
     /// <summary>항상 참</summary>
-    Always
+    Always,
+
+    // 침식/레이드
+    /// <summary>모든 직원의 평균 침식 수치</summary>
+    AverageErosionLevel,
+    /// <summary>특정 침식 단계 이상인 직원 수 (value = 단계 int, threshold = 인원수)</summary>
+    EmployeesAtErosionStage,
+    /// <summary>레이드 진행 중 여부</summary>
+    RaidActive,
+    /// <summary>완료된 레이드 횟수</summary>
+    RaidCount
 }
 
 /// <summary>
@@ -141,7 +153,19 @@ public enum EffectType
 
     // 메시지
     /// <summary>알림 표시</summary>
-    ShowNotification
+    ShowNotification,
+
+    // 제노프스
+    /// <summary>제노프스 스폰 (targetId = XenopsData ID, 카메라 근처 위치에 등장)</summary>
+    SpawnXenops,
+
+    // 침식/레이드
+    /// <summary>레이드 시작 (targetId = RaidData.raidId)</summary>
+    StartRaid,
+    /// <summary>대상 직원의 침식 수치 변경 (value = 변화량, 음수 = 감소)</summary>
+    ModifyErosion,
+    /// <summary>포스트 레이드 가속 회복 즉시 시작</summary>
+    StartPostRaidRecovery
 }
 
 /// <summary>

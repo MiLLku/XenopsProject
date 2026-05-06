@@ -21,12 +21,6 @@ MonoBehaviour:
   size: {x: 1, y: 1}
   pivot: {x: 0, y: 0}
   constructionTime: 30
-  requiredResources:
-  - item: {fileID: 11400000, guid: a96130139a7bf224c9c006d9e49bc97b, type: 2}
-    amount: 2
-  - item: {fileID: 11400000, guid: 91dd7c46742902d4eb0008789168e73a, type: 2}
-    amount: 5
-  - item: {fileID: 11400000, guid: 3f38772a5b4e7de4885eaeba813711b7, type: 2}
-    amount: 5
+  requiredResources: []
   maxHealth: 100
   blocksMovement: 1

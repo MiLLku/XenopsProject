@@ -393,34 +393,41 @@ public class SaveManager : DontDestroySingleton<SaveManager>
         }
 
         // 건물 제거
-        var buildings = FindObjectsOfType<Building>();
+        var buildings = FindObjectsByType<Building>(FindObjectsSortMode.None);
         foreach (var building in buildings)
         {
             Destroy(building.gameObject);
         }
 
         // 건설 현장 제거
-        var sites = FindObjectsOfType<ConstructionSite>();
+        var sites = FindObjectsByType<ConstructionSite>(FindObjectsSortMode.None);
         foreach (var site in sites)
         {
             Destroy(site.gameObject);
         }
 
         // 자연물 제거
-        var trees = FindObjectsOfType<ChoppableTree>();
+        var trees = FindObjectsByType<ChoppableTree>(FindObjectsSortMode.None);
         foreach (var tree in trees)
         {
             Destroy(tree.gameObject);
         }
 
-        var plants = FindObjectsOfType<HarvestablePlant>();
+        var plants = FindObjectsByType<HarvestablePlant>(FindObjectsSortMode.None);
         foreach (var plant in plants)
         {
             Destroy(plant.gameObject);
         }
 
+        // 침식 식물 제거
+        var erosionPlants = FindObjectsByType<ErosionPlantEntity>(FindObjectsSortMode.None);
+        foreach (var ep in erosionPlants)
+        {
+            Destroy(ep.gameObject);
+        }
+
         // 드롭 아이템 제거
-        var droppedItems = FindObjectsOfType<ClickableItem>();
+        var droppedItems = FindObjectsByType<ClickableItem>(FindObjectsSortMode.None);
         foreach (var item in droppedItems)
         {
             Destroy(item.gameObject);
@@ -453,7 +460,7 @@ public class SaveManager : DontDestroySingleton<SaveManager>
     /// </summary>
     private List<ISaveModule> GetSaveModules()
     {
-        var modules = FindObjectsOfType<MonoBehaviour>()
+        var modules = FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None)
             .OfType<ISaveModule>()
             .OrderBy(m => m.SaveOrder)
             .ToList();

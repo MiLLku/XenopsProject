@@ -66,6 +66,11 @@ public class BuildingData : ScriptableObject
     [Tooltip("직원의 이동을 막는지 여부")]
     public bool blocksMovement = true;
 
+    [Tooltip("건설 시 아래 타일에 지면이 필요한지 여부.\n" +
+             "• true  : 자연 지형 또는 바닥 건물이 바로 아래 있어야 배치 가능 (작업대 등 일반 건물)\n" +
+             "• false : 공중·허공에도 배치 가능 (바닥 타일, 사다리, 다리 등 기반 시설)")]
+    public bool requiresFloorSupport = true;
+
     #endregion
 
     // TODO [건물시스템]: 전력 소모량, 작업 포인트 등 추가 필드 확장 가능

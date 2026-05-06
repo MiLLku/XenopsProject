@@ -104,6 +104,11 @@ public static class EventEffectApplier
                 ShowNotification(effect.description);
                 break;
 
+            // ===== 제노프스 =====
+            case EffectType.SpawnXenops:
+                SpawnXenopsNearCamera(effect.targetId);
+                break;
+
             default:
                 Debug.LogWarning($"[EventEffectApplier] 알 수 없는 효과 타입: {effect.type}");
                 break;
@@ -233,7 +238,7 @@ public static class EventEffectApplier
 
     private static void DamageRandomBuilding(int damage)
     {
-        var buildings = GameObject.FindObjectsOfType<Building>();
+        var buildings = UnityEngine.Object.FindObjectsByType<Building>(FindObjectsSortMode.None);
         if (buildings.Length == 0) return;
 
         var target = buildings[Random.Range(0, buildings.Length)];
@@ -243,7 +248,7 @@ public static class EventEffectApplier
 
     private static void DestroyRandomBuilding(int count)
     {
-        var buildings = GameObject.FindObjectsOfType<Building>()
+        var buildings = UnityEngine.Object.FindObjectsByType<Building>(FindObjectsSortMode.None)
             .OrderBy(_ => Random.value)
             .Take(count)
             .ToList();
@@ -329,6 +334,28 @@ public static class EventEffectApplier
     {
         Debug.Log($"[EventEffectApplier] 알림: {message}");
         // TODO: UI 알림 시스템과 연동
+    }
+
+    private static void SpawnXenopsNearCamera(int xenopsDataId)
+    {
+        if (XenopsManager.instance == null)
+        {
+            Debug.LogWarning("[EventEffectApplier] XenopsManager가 없습니다.");
+            return;
+        }
+
+        // 카메라 근처 랜덤 위치에 등장
+        Vector3 spawnPos = Vector3.zero;
+        if (Camera.main != null)
+        {
+            Vector3 camPos = Camera.main.transform.position;
+            float offsetX = UnityEngine.Random.Range(-8f, 8f);
+            float offsetY = UnityEngine.Random.Range(-3f, 3f);
+            spawnPos = new Vector3(camPos.x + offsetX, camPos.y + offsetY, 0f);
+        }
+
+        XenopsManager.instance.SpawnXenops(xenopsDataId, spawnPos);
+        Debug.Log($"[EventEffectApplier] 제노프스 등장: ID {xenopsDataId} at {spawnPos}");
     }
 
     #endregion

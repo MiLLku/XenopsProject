@@ -116,7 +116,13 @@ public class WorkAssignmentPanel : BasePanel
     {
         if (headerText != null)
         {
-            headerText.text = $"{currentOrder.orderName}\n({currentOrder.assignedWorkers.Count}/{currentOrder.maxAssignedWorkers})";
+            // 자동 픽업: 현재 작업 중 인원 표시 (자격 직원이면 누구든 가능)
+            // 전용 할당: 등록 인원/최대 인원 표시
+            string workerInfo = currentOrder.IsAutoPickup
+                ? $"[자동] 작업중: {currentOrder.assignedWorkers.Count}명"
+                : $"({currentOrder.assignedWorkers.Count}/{currentOrder.maxAssignedWorkers})";
+
+            headerText.text = $"{currentOrder.orderName}\n{workerInfo}";
         }
     }
 

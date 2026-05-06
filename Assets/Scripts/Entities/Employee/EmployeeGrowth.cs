@@ -88,7 +88,8 @@ public class EmployeeGrowth : MonoBehaviour
     {
         if (!growthEnabled) return;
 
-        experience += amount;
+        float gainMult = statsController != null ? statsController.CachedSkillGainRateModifier : 1f;
+        experience += Mathf.Max(1, Mathf.RoundToInt(amount * gainMult));
 
         Debug.Log($"[Growth] {employee?.DisplayName} 경험치 획득: +{amount} ({experience}/{experienceToNextLevel})");
 

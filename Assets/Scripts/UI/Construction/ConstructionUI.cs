@@ -460,11 +460,14 @@ public class ConstructionUI : BasePanel
     private void UpdateBuildButton()
     {
         if (buildButton == null || selectedBuildingData == null) return;
-        
+
+        // 건물이 선택된 경우 버튼은 항상 활성화 (자원 여부와 무관)
+        // 자원 부족은 배치 모드에서 노란 고스트로 시각적으로 표시
+        buildButton.interactable = true;
+
         bool canAfford = constructionManager.HasRequiredResources(selectedBuildingData);
-        buildButton.interactable = canAfford;
-        
-        // 버튼 색상 변경
+
+        // 버튼 색상으로 자원 여부 표시
         Image buttonImage = buildButton.GetComponent<Image>();
         if (buttonImage != null)
         {
@@ -480,21 +483,26 @@ public class ConstructionUI : BasePanel
     {
         if (selectedBuildingData == null) return;
 
-        bool success = constructionManager.EnterPlacementMode(selectedBuildingData);
+        // 배치할 건물 데이터를 먼저 저장 (HidePanel 이후 selectedBuildingData가 null이 될 수 있음)
+        BuildingData dataToPlace = selectedBuildingData;
+
+        // 패널 먼저 닫기 — isPlacementMode가 아직 false이므로
+        // OnClose()에서 ExitPlacementMode()가 호출되지 않음
+        if (UIManager.instance != null)
+        {
+            UIManager.instance.HidePanel(UIPanelType.ConstructionUI);
+        }
+
+        // 패널이 닫힌 후 배치 모드 진입 (고스트 생성)
+        bool success = constructionManager.EnterPlacementMode(dataToPlace);
 
         if (success)
         {
-            // 배치 모드 진입 성공 - UIManager를 통해 UI 숨기기
-            if (UIManager.instance != null)
-            {
-                UIManager.instance.HidePanel(UIPanelType.ConstructionUI);
-            }
-
-            Debug.Log($"[ConstructionUI] 배치 모드 진입 - UI 숨김: {selectedBuildingData.buildingName}");
+            Debug.Log($"[ConstructionUI] 배치 모드 진입 성공: {dataToPlace.buildingName}");
         }
         else
         {
-            Debug.LogWarning($"[ConstructionUI] 건설 모드 진입 실패: {selectedBuildingData.buildingName}");
+            Debug.LogWarning($"[ConstructionUI] 건설 모드 진입 실패: {dataToPlace.buildingName}");
         }
     }
     

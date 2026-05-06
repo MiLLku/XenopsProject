@@ -21,4 +21,7 @@ public struct EmployeeStats
 
     /// <summary>공격력</summary>
     public int attackPower;
+
+    /// <summary>침식 수치 — 제노프스 등의 영향으로 부여되는 디버프 값 (0 = 없음)</summary>
+    public float erosionLevel;
 }

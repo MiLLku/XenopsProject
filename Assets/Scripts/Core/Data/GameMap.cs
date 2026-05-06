@@ -53,6 +53,21 @@ public class GameMap
     /// <summary>이동 차단 상태 (점유된 타일이 이동을 막는지)</summary>
     public bool[,] BlocksMovementGrid { get; private set; }
 
+    /// <summary>
+    /// 바닥 지지 그리드.
+    /// 완성된 바닥 건물(blocksMovement=false)이 놓인 타일만 true입니다.
+    /// 건설 예정지(ConstructionSite)는 포함되지 않으므로,
+    /// 경로탐색기가 건설 예정지 위를 발판으로 오인하지 않습니다.
+    /// </summary>
+    public bool[,] FloorSupportGrid { get; private set; }
+
+    /// <summary>
+    /// 내비게이션 버전 카운터.
+    /// 지형이 변할 때마다 1씩 증가합니다.
+    /// EmployeeMovement가 이 값을 감지해 이동 중 경로를 재탐색합니다.
+    /// </summary>
+    public int NavVersion { get; private set; } = 0;
+
     #endregion
 
     #region 초기화
@@ -64,6 +79,7 @@ public class GameMap
         Entities = new List<MapEntity>();
         OccupiedGrid = new bool[MAP_WIDTH, MAP_HEIGHT];
         BlocksMovementGrid = new bool[MAP_WIDTH, MAP_HEIGHT];
+        FloorSupportGrid = new bool[MAP_WIDTH, MAP_HEIGHT];
     }
 
     #endregion
@@ -84,7 +100,11 @@ public class GameMap
     /// </summary>
     public void SetTile(int x, int y, int tileId)
     {
-        if (IsInBounds(x, y)) TileGrid[x, y] = tileId;
+        if (IsInBounds(x, y))
+        {
+            TileGrid[x, y] = tileId;
+            NavVersion++;
+        }
     }
 
     /// <summary>
@@ -106,17 +126,32 @@ public class GameMap
         }
     }
 
+    /// <summary>
+    /// 맵 개체 목록을 초기화합니다.
+    /// 세이브 복원 전 기존 데이터 제거 시 사용합니다.
+    /// </summary>
+    public void ClearEntities()
+    {
+        Entities.Clear();
+    }
+
     #endregion
 
     #region 타일 상태 조회
 
     /// <summary>
-    /// 해당 좌표가 단단한 지면인지 확인합니다 (AIR가 아닌 모든 타일).
+    /// 해당 좌표가 단단한 지면인지 확인합니다.
+    /// 자연 지형 타일 또는 완성된 바닥 건물이 있으면 지면으로 판정합니다.
+    /// 건설 예정지(ConstructionSite)는 포함되지 않습니다.
     /// </summary>
     public bool IsSolidGround(int x, int y)
     {
         if (!IsInBounds(x, y)) return false;
-        return TileGrid[x, y] != AIR_ID;
+        // 자연 지형 타일 (공기가 아닌 모든 타일: 흙, 돌, 사다리 등)
+        if (TileGrid[x, y] != AIR_ID) return true;
+        // 완성된 바닥 건물 (FloorSupportGrid에 등록된 것만 — 건설 예정지 제외)
+        if (FloorSupportGrid[x, y]) return true;
+        return false;
     }
 
     /// <summary>
@@ -168,11 +203,13 @@ public class GameMap
         {
             OccupiedGrid[x, y] = true;
             BlocksMovementGrid[x, y] = blocksMovement;
+            NavVersion++;
         }
     }
 
     /// <summary>
     /// 타일의 점유 상태를 해제합니다.
+    /// FloorSupportGrid도 함께 초기화됩니다.
     /// </summary>
     public void UnmarkTileOccupied(int x, int y)
     {
@@ -180,7 +217,29 @@ public class GameMap
         {
             OccupiedGrid[x, y] = false;
             BlocksMovementGrid[x, y] = false;
+            FloorSupportGrid[x, y] = false;
+            NavVersion++;
         }
+    }
+
+    /// <summary>
+    /// 완성된 바닥 건물의 발판 지지 여부를 설정합니다.
+    /// Building.RegisterToGameMap()에서 blocksMovement=false인 건물이 완공될 때 호출합니다.
+    /// </summary>
+    public void MarkFloorSupport(int x, int y, bool isSupport)
+    {
+        if (IsInBounds(x, y))
+            FloorSupportGrid[x, y] = isSupport;
+    }
+
+    /// <summary>
+    /// 해당 타일이 완성된 바닥 건물로 발판을 제공하는지 확인합니다.
+    /// 건설 예정지는 false를 반환합니다.
+    /// </summary>
+    public bool IsFloorSupport(int x, int y)
+    {
+        if (!IsInBounds(x, y)) return false;
+        return FloorSupportGrid[x, y];
     }
 
     /// <summary>
@@ -224,7 +283,7 @@ public class GameMap
         if (!IsInBounds(x, y)) return;
         if (TileGrid[x, y] == AIR_ID)
         {
-            SetTile(x, y, LADDER_ID);
+            SetTile(x, y, LADDER_ID); // SetTile 내부에서 NavVersion++ 처리
         }
     }
 
@@ -236,7 +295,7 @@ public class GameMap
         if (!IsInBounds(x, y)) return;
         if (IsLadder(x, y))
         {
-            SetTile(x, y, AIR_ID);
+            SetTile(x, y, AIR_ID); // SetTile 내부에서 NavVersion++ 처리
         }
     }
 

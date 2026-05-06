@@ -120,6 +120,59 @@ public class EmployeeSaveData
 
     #endregion
 
+    #region 침식
+
+    /// <summary>현재 침식 수치</summary>
+    public float erosionLevel;
+
+    /// <summary>마지막 오라 노출 이후 경과 시간 (초) — 회복 타이머용</summary>
+    public float timeSinceLastAuraExposure;
+
+    /// <summary>현재 활성 이상 행동 타입 (AbnormalBehaviorType int 값, 0 = 없음)</summary>
+    public int activeAbnormalBehavior;
+
+    /// <summary>이상 행동 남은 지속 시간 (초)</summary>
+    public float abnormalBehaviorRemainingTime;
+
+    /// <summary>
+    /// 자연 침식 최고 노출 수치 워터마크.
+    /// ApplyNaturalErosion에서 이 값 이하의 수치는 무시됩니다.
+    /// ErosionLevel이 0으로 완전 회복되면 함께 초기화됩니다.
+    /// </summary>
+    public float naturalErosionWatermark;
+
+    #endregion
+
+    #region 스케줄
+
+    /// <summary>24시간 스케줄 (ScheduleActivity int 값 배열, null이면 기본 스케줄 사용)</summary>
+    public int[] scheduleActivities;
+
+    #endregion
+
+    #region 소집
+
+    /// <summary>소집 상태 (로드 후 즉시 해제 권장이나 상태 보존용으로 저장)</summary>
+    public bool isDrafted;
+
+    #endregion
+
+    #region 구역 할당
+
+    /// <summary>수면 구역 ID (-1 = 미할당)</summary>
+    public int sleepZoneId = -1;
+
+    /// <summary>오락 구역 ID (-1 = 미할당)</summary>
+    public int recreationZoneId = -1;
+
+    /// <summary>세척 구역 ID (-1 = 미할당)</summary>
+    public int washZoneId = -1;
+
+    /// <summary>작업 구역 ID (-1 = 미할당)</summary>
+    public int workZoneId = -1;
+
+    #endregion
+
     public EmployeeSaveData()
     {
         assignedWorkOrderId = -1;
@@ -130,6 +183,10 @@ public class EmployeeSaveData
         level = 1;
         experience = 0;
         experienceToNextLevel = 100;
+        sleepZoneId = -1;
+        recreationZoneId = -1;
+        washZoneId = -1;
+        workZoneId = -1;
     }
 }
 

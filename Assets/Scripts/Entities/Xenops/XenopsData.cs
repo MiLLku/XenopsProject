@@ -30,6 +30,9 @@ public class XenopsData : ScriptableObject
     [Tooltip("제노프스 타입")]
     public XenopsType xenopsType;
 
+    [Tooltip("난이도 등급 (F~S)")]
+    public XenopsGrade grade = XenopsGrade.D;
+
     [Tooltip("프리팹 (타입별 Behavior 컴포넌트가 부착된 상태)")]
     public GameObject prefab;
 
@@ -65,37 +68,30 @@ public class XenopsData : ScriptableObject
 
     #region 장비형 설정
 
-    [Header("장비형 설정")]
+    [Header("장비형 설정 (Equipment 전용)")]
     [Tooltip("장비 슬롯 (장비형 전용)")]
     public EquipmentSlot equipmentSlot;
 
     #endregion
 
-    #region 타입별 설정
+    #region 환경/잠입체 설정
 
-    [Header("타입별 설정")]
-    [Tooltip("효과 영향 범위 (환경/적대)")]
+    [Header("환경/잠입체 설정")]
+    [Tooltip("효과 영향 범위 (환경형)")]
     [Min(0)]
     public float effectRadius = 3f;
-
-    [Tooltip("기본 공격력 (적대적 생명체)")]
-    [Min(0)]
-    public float hostileDamage = 5f;
-
-    [Tooltip("공격 간격 — 초 (적대적 생명체)")]
-    [Min(0.1f)]
-    public float hostileAttackInterval = 5f;
 
     [Tooltip("자원 소모/생산 간격 — 초 (잠입체)")]
     [Min(0.1f)]
     public float infiltrateInterval = 30f;
 
-    [Tooltip("제압 시 드랍 아이템 ID (적대적 생명체, 0 = 없음)")]
-    public int subdueDropItemId;
+    #endregion
 
-    [Tooltip("제압 시 드랍 수량")]
-    [Min(0)]
-    public int subdueDropAmount = 1;
+    #region 개체형 전투 스탯
+
+    [Header("개체형 전투 스탯 (Hostile 전용)")]
+    [Tooltip("이동속도·체력·방어력·공격 스탯 및 범위 침식 설정.\nxenopsType이 Hostile일 때만 사용됩니다.")]
+    public HostileCombatStats hostileStats = new HostileCombatStats();
 
     #endregion
 
@@ -105,19 +101,64 @@ public class XenopsData : ScriptableObject
     {
         if (!GameIDRegistry.Xenops.IsValid(xenopsID) && xenopsID != 0)
         {
-            Debug.LogWarning($"[XenopsData] {xenopsName}: ID {xenopsID}는 Xenops 범위(6000~6999)에 속하지 않습니다!");
+            Debug.LogWarning(
+                $"[XenopsData] {xenopsName}: ID {xenopsID}는 Xenops 범위(6000~6999)에 속하지 않습니다!");
         }
 
         if (benefits.Count == 0)
-        {
             Debug.LogWarning($"[XenopsData] {xenopsName}: 이로운 효과가 없습니다! 최소 1개 필요.");
-        }
 
         if (drawbacks.Count == 0)
-        {
             Debug.LogWarning($"[XenopsData] {xenopsName}: 해로운 효과가 없습니다! 최소 1개 필요.");
-        }
     }
 
     #endregion
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// <summary>
+/// 개체형(Hostile) 제놉스 전투 스탯.
+/// XenopsData.hostileStats 필드로 사용됩니다.
+/// </summary>
+[System.Serializable]
+public class HostileCombatStats
+{
+    [Header("이동")]
+    [Tooltip("이동 속도 (units/second)")]
+    [Min(0)] public float moveSpeed = 2f;
+
+    [Header("체력 / 방어")]
+    [Tooltip("최대 체력")]
+    [Min(1)] public float maxHealth = 100f;
+
+    [Tooltip("방어력 (0~1, 받는 피해 감소율. 0.3 = 30% 감소)")]
+    [Range(0f, 1f)] public float defense = 0f;
+
+    [Header("공격")]
+    [Tooltip("공격 속도 (회/초)")]
+    [Min(0.01f)] public float attackSpeed = 1f;
+
+    [Tooltip("공격력 (1회 체력 피해량)")]
+    [Min(0)] public float attackDamage = 10f;
+
+    [Tooltip("공격 사거리 (블럭 수)")]
+    [Min(0)] public float attackRange = 1f;
+
+    [Tooltip("크기 (블럭 수)")]
+    [Min(1)] public int size = 1;
+
+    [Header("범위 침식 (모든 개체형 공통)")]
+    [Tooltip("주변 직원에게 초당 적용되는 침식량")]
+    [Min(0)] public float aoeErosionPerSecond = 2f;
+
+    [Tooltip("범위 침식 반경 (블럭 수)")]
+    [Min(0)] public float aoeErosionRange = 3f;
+
+    [Header("드랍")]
+    [Tooltip("제압/사망 시 드랍 아이템 ID (0 = 없음)")]
+    public int subdueDropItemId = 0;
+
+    [Tooltip("드랍 수량")]
+    [Min(0)] public int subdueDropAmount = 1;
 }

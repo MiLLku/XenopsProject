@@ -184,17 +184,19 @@ public class FloorTile : MonoBehaviour
 public enum FloorTileType
 {
     /// <summary>나무 바닥 (속도: 1.0)</summary>
-    WoodFloor,
+    WoodFloor = 0,
     /// <summary>돌 바닥 (속도: 1.0)</summary>
-    StoneFloor,
+    StoneFloor = 1,
     /// <summary>금속 바닥 (속도: 1.2)</summary>
-    MetalFloor,
+    MetalFloor = 2,
     /// <summary>나무 사다리 (속도: 0.8, 수직 이동 가능)</summary>
-    WoodLadder,
+    WoodLadder = 3,
     /// <summary>금속 사다리 (속도: 0.9, 수직 이동 가능)</summary>
-    MetalLadder,
+    MetalLadder = 4,
     /// <summary>좁은 통로 (속도: 0.9)</summary>
-    Catwalk,
+    Catwalk = 5,
     /// <summary>다리 (속도: 1.0)</summary>
-    Bridge
+    Bridge = 6,
+    /// <summary>가공된 흙 바닥 (속도: 0.9, 기본 인프라 타일)</summary>
+    DirtFloor = 7
 }

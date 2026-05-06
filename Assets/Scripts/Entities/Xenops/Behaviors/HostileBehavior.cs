@@ -54,7 +54,7 @@ public class HostileBehavior : MonoBehaviour, IXenopsBehavior
         attackTimer -= Time.deltaTime;
         if (attackTimer <= 0f)
         {
-            attackTimer = data != null ? data.hostileAttackInterval : 5f;
+            attackTimer = data != null ? (data.hostileStats.attackSpeed > 0f ? 1f / data.hostileStats.attackSpeed : 1f) : 1f;
             AttackNearbyTargets();
         }
     }
@@ -94,7 +94,7 @@ public class HostileBehavior : MonoBehaviour, IXenopsBehavior
         if (EmployeeManager.instance == null) return;
 
         float radius = data.effectRadius;
-        float damage = data.hostileDamage;
+        float damage = data.hostileStats.attackDamage;
         Vector3 pos = transform.position;
 
         // 범위 내 직원 공격

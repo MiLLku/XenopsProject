@@ -71,6 +71,9 @@ public class Building : MonoBehaviour
     /// <summary>런타임 고유 ID (세이브/로드 및 크로스레퍼런스용)</summary>
     private int _instanceId = -1;
 
+    /// <summary>초기화 완료 여부 (Awake + SpawnBuilding 이중 초기화 방지)</summary>
+    private bool _isInitialized = false;
+
     #endregion
 
     #region 프로퍼티
@@ -130,7 +133,8 @@ public class Building : MonoBehaviour
         }
         else
         {
-            Debug.LogError($"[Building] '{this.name}'에 BuildingData가 연결되지 않았습니다!");
+            // 프리팹에 buildingData가 미연결된 경우 SpawnBuilding()에서 Initialize()를 직접 호출합니다.
+            // (정상 흐름 — 에러가 아닙니다)
         }
 
         if (showDebugInfo)
@@ -143,14 +147,31 @@ public class Building : MonoBehaviour
     /// <summary>
     /// 건물을 초기화합니다.
     /// BuildingData를 설정하고 체력을 최대로 채운 뒤 타일을 점유합니다.
+    ///
+    /// 호출 경로:
+    ///   A) 프리팹에 buildingData가 연결된 경우 → Awake()에서 자동 호출
+    ///   B) 프리팹에 buildingData가 없는 경우  → SpawnBuilding()에서 직접 호출
+    ///   두 경로 모두 안전하게 처리됩니다 (_isInitialized 가드).
     /// </summary>
     /// <param name="data">건물 데이터</param>
     public void Initialize(BuildingData data)
     {
+        if (_isInitialized) return; // 이중 초기화 방지 (Awake + SpawnBuilding 중복 호출 시)
+        _isInitialized = true;
+
         buildingData = data;
         _currentHealth = data.maxHealth;
         _isFunctional = true;
         this.name = $"{data.buildingName} ({this.gameObject.GetInstanceID()})";
+
+        // ── 콜라이더 트리거 설정 ───────────────────────────────────────────────
+        // 통행 가능 건물(바닥 타일, 사다리, 다리 등)은 트리거 콜라이더를 사용합니다.
+        // 이유: Solid 콜라이더이면 직원이 이동 중(Kinematic) 타일에 닿을 때
+        //       OnCollisionEnter2D가 발생 → StopMoving() 호출 → 이동 중단 버그.
+        //       트리거로 설정하면 물리 충돌이 없어 이동이 끊기지 않습니다.
+        //       (마우스 클릭 이벤트는 트리거 콜라이더에서도 정상 동작합니다.)
+        if (_collider != null)
+            _collider.isTrigger = !data.blocksMovement;
 
         RegisterToGameMap();
     }
@@ -385,7 +406,13 @@ public class Building : MonoBehaviour
         {
             for (int y = 0; y < buildingData.size.y; y++)
             {
-                gameMap.MarkTileOccupied(basePos.x + x, basePos.y + y, buildingData.blocksMovement);
+                int tx = basePos.x + x;
+                int ty = basePos.y + y;
+                gameMap.MarkTileOccupied(tx, ty, buildingData.blocksMovement);
+                // 통행 가능 건물(바닥 타일, 다리 등)은 그 위에 서거나 건물을 올릴 수 있도록
+                // FloorSupportGrid에 등록합니다. 건설 예정지는 여기에 포함되지 않습니다.
+                if (!buildingData.blocksMovement)
+                    gameMap.MarkFloorSupport(tx, ty, true);
             }
         }
     }

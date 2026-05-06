@@ -223,14 +223,33 @@ public class WorkOrder
     #region 작업자 관리
 
     /// <summary>
+    /// 자동 픽업 작업인지 여부.
+    /// true면 자격 직원이 자유롭게 작업을 가져갈 수 있고, maxAssignedWorkers 제한을 받지 않습니다.
+    /// false면 플레이어가 명시적으로 지정한 직원만 작업할 수 있습니다 (연구/제작 등 침식 노출 작업).
+    /// </summary>
+    public bool IsAutoPickup => WorkTypeCategory.IsAutoPickup(workType);
+
+    /// <summary>
+    /// 전용 직원 할당이 필요한지 여부 (자동 픽업의 반대).
+    /// </summary>
+    public bool RequiresDedicatedAssignment => WorkTypeCategory.RequiresDedicatedAssignment(workType);
+
+    /// <summary>
     /// 작업자를 할당할 수 있는지 확인합니다.
-    /// 활성 상태, 대기 작업 존재, 최대 인원 미초과를 확인합니다.
+    ///
+    /// 자동 픽업 작업: 활성 상태와 대기 작업만 확인 (인원 제한 없음).
+    /// 전용 할당 작업: 활성 상태 + 대기 작업 + 최대 인원 미초과 + 단일 작업 검증.
     /// </summary>
     /// <returns>할당 가능 여부</returns>
     public bool CanAssignWorker()
     {
         if (!isActive || isPaused) return false;
         if (!taskQueue.HasPendingTasks()) return false;
+
+        // 자동 픽업: 인원 제한 없음. 자격 직원이면 누구든 작업 가능.
+        if (IsAutoPickup) return true;
+
+        // 전용 할당: 인원 제한 적용.
         if (assignedWorkers.Count >= maxAssignedWorkers) return false;
 
         if (!CanMultipleWorkersWork(workType) && assignedWorkers.Count > 0)
@@ -274,7 +293,15 @@ public class WorkOrder
 
     /// <summary>
     /// 특정 직원에게 다음 작업을 할당합니다.
-    /// 먼저 작업 범위 내의 작업을 시도하고, 없으면 가장 적합한 작업을 할당합니다.
+    ///
+    /// [채광/벌목] 글로벌 선택기(MiningTaskSelector)를 직접 사용합니다.
+    ///   - AssignNextTaskInRange는 현재 범위(dy ≤ 2) 내 타일만 후보로 보기 때문에,
+    ///     y=1·y=2를 캐낸 직후에도 y=0(범위 내)을 y=3보다 먼저 할당합니다.
+    ///     그 결과 y=0(발판) 이 사라져 y=3이 영구 도달 불가가 되는 버그가 발생합니다.
+    ///   - 글로벌 선택기는 columnOrderPenalty(500) + heightBonus + 도달가능성 체크를 통해
+    ///     항상 올바른 채광 순서(위→아래)를 보장합니다.
+    ///
+    /// [그 외 작업] 효율성을 위해 현재 범위 내 작업을 먼저 시도합니다.
     /// </summary>
     /// <param name="worker">작업을 받을 직원</param>
     /// <returns>할당된 WorkTask (실패 시 null)</returns>
@@ -283,16 +310,50 @@ public class WorkOrder
         if (worker == null || !assignedWorkers.Contains(worker))
             return null;
 
-        // 먼저 작업 범위 내의 작업 시도
-        WorkTask task = taskQueue.AssignNextTaskInRange(worker);
-
-        // 범위 내에 없으면 가장 가까운 작업 할당
-        if (task == null)
+        // 채광·벌목은 글로벌 선택기로 최적 순서 보장 (범위 제한 없이)
+        if (workType == WorkType.Mining || workType == WorkType.Chopping)
         {
-            task = taskQueue.AssignNextTask(worker);
+            return taskQueue.AssignNextTask(worker);
         }
 
+        // 그 외 작업: 현재 범위 내 → 전체 fallback
+        WorkTask task = taskQueue.AssignNextTaskInRange(worker);
+        if (task == null)
+            task = taskQueue.AssignNextTask(worker);
+
         return task;
+    }
+
+    /// <summary>
+    /// 특정 직원에게 구역 내에 있는 다음 작업을 할당합니다.
+    /// 구역 내 작업이 없으면 null을 반환합니다 (전체 fallback 없음).
+    /// </summary>
+    /// <param name="worker">작업을 받을 직원</param>
+    /// <param name="zone">허용 구역</param>
+    /// <returns>할당된 WorkTask (구역 내 작업 없으면 null)</returns>
+    public WorkTask AssignNextTaskToWorkerInZone(Employee worker, Zone zone)
+    {
+        if (worker == null || !assignedWorkers.Contains(worker) || zone == null)
+            return null;
+
+        // 구역 내 태스크만 선택하여 할당 (MiningTaskSelector가 최적 순서 결정)
+        return taskQueue.AssignNextTaskInZone(worker, zone);
+    }
+
+    /// <summary>
+    /// 구역 내에 있는 Pending 태스크 목록을 반환합니다.
+    /// </summary>
+    public List<WorkTask> GetPendingTasksInZone(Zone zone)
+    {
+        if (zone == null || taskQueue == null) return new List<WorkTask>();
+
+        return taskQueue.PendingTasks.Where(t =>
+        {
+            if (!t.IsValid()) return false;
+            Vector3 pos = t.GetPosition();
+            var tile = new Vector2Int(Mathf.FloorToInt(pos.x), Mathf.FloorToInt(pos.y));
+            return zone.ContainsTile(tile);
+        }).ToList();
     }
 
     /// <summary>

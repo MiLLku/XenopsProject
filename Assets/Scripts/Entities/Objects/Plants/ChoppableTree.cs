@@ -27,6 +27,9 @@ public class ChoppableTree : MonoBehaviour, IHarvestable, IWorkTarget
     private bool isFullyGrown = false;
     private bool isBeingChopped = false;
 
+    /// <summary>세이브에서 복원된 경우 true — Start()의 랜덤 초기화를 건너뜁니다.</summary>
+    private bool _isRestoredFromSave = false;
+
     /// <summary>성장 진행도 (0~1)</summary>
     public float GrowthProgress => growthTime > 0 ? Mathf.Clamp01(currentGrowth / growthTime) : 1f;
 
@@ -54,14 +57,18 @@ public class ChoppableTree : MonoBehaviour, IHarvestable, IWorkTarget
     void Start()
     {
         UpdateVisual();
-        
-        // 테스트용: 50% 확률로 이미 다 자란 나무로 시작
-        if (Random.Range(0f, 1f) < 0.5f)
+
+        // 세이브 복원 시에는 랜덤 초기화 생략 (RestoreGrowthState에서 이미 설정됨)
+        if (!_isRestoredFromSave)
         {
-            currentGrowth = growthTime;
-            isFullyGrown = true;
-            currentStage = TreeStage.Mature;
-            UpdateVisual();
+            // 테스트용: 50% 확률로 이미 다 자란 나무로 시작
+            if (Random.Range(0f, 1f) < 0.5f)
+            {
+                currentGrowth = growthTime;
+                isFullyGrown = true;
+                currentStage = TreeStage.Mature;
+                UpdateVisual();
+            }
         }
     }
     
@@ -197,6 +204,35 @@ public class ChoppableTree : MonoBehaviour, IHarvestable, IWorkTarget
     
     #endregion
     
+    /// <summary>
+    /// 세이브에서 성장 상태를 복원합니다.
+    /// Instantiate 직후, Start() 실행 전에 호출해야 합니다.
+    /// </summary>
+    /// <param name="growthProgress">저장된 성장 진행도 (0~1)</param>
+    public void RestoreGrowthState(float growthProgress)
+    {
+        _isRestoredFromSave = true;
+        currentGrowth = Mathf.Clamp01(growthProgress) * growthTime;
+
+        float pct = growthTime > 0 ? currentGrowth / growthTime : 1f;
+        if (pct >= 1f)
+        {
+            isFullyGrown = true;
+            currentStage = TreeStage.Mature;
+        }
+        else if (pct >= 0.5f)
+        {
+            currentStage = TreeStage.Young;
+        }
+        else
+        {
+            currentStage = TreeStage.Seedling;
+        }
+
+        // spriteRenderer는 Awake()에서 이미 할당됨
+        if (spriteRenderer != null) UpdateVisual();
+    }
+
     private void CreateStump()
     {
         // 나무 그루터기 생성 (선택사항)

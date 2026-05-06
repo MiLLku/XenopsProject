@@ -241,6 +241,21 @@ public class EmployeeEquipment : MonoBehaviour
         return Mathf.Clamp(total, 0f, 100f);
     }
 
+    /// <summary>
+    /// 전체 장비의 침식 오라 무시 수치 합산.
+    /// HostileErosionAura에서 개체의 aoeErosionPerSecond와 비교합니다.
+    /// </summary>
+    public float GetTotalErosionIgnore()
+    {
+        float total = 0f;
+        foreach (var kvp in itemSlots)
+        {
+            if (kvp.Value.passiveEffects != null)
+                total += kvp.Value.passiveEffects.erosionIgnoreValue;
+        }
+        return total;
+    }
+
     /// <summary>전체 장비의 추가 산출 확률 합산</summary>
     public float GetTotalBonusYieldChance()
     {

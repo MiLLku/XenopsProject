@@ -329,8 +329,14 @@ public class WorkOrderVisual : MonoBehaviour
             int assigned = workOrder.taskQueue.AssignedCount;
             int completed = workOrder.taskQueue.CompletedCount;
 
+            // 자동 픽업: 현재 작업 중인 직원 수만 표시 (인원 제한 없음)
+            // 전용 할당: 등록 인원/최대 인원 표시
+            string workerInfo = workOrder.IsAutoPickup
+                ? $"작업중: {workOrder.assignedWorkers.Count}명"
+                : $"({workOrder.assignedWorkers.Count}/{workOrder.maxAssignedWorkers})";
+
             labelText.text = $"{workOrder.orderName}\n" +
-                            $"({workOrder.assignedWorkers.Count}/{workOrder.maxAssignedWorkers})\n" +
+                            $"{workerInfo}\n" +
                             $"[{completed}/{pending + assigned + completed}]";
         }
     }

@@ -101,6 +101,11 @@ public class EquipmentPassiveEffects
     [Header("작업")]
     [Tooltip("작업 타입별 속도 보정")]
     public WorkSpeedModifier[] workTypeModifiers;
+
+    [Header("침식 방어")]
+    [Tooltip("침식 오라 무시 수치. 개체의 aoeErosionPerSecond가 이 값 이하이면 오라를 차단합니다.")]
+    [Min(0)]
+    public float erosionIgnoreValue;
 }
 
 /// <summary>

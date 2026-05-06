@@ -16,7 +16,7 @@ public class DroppedItemSaveModule : MonoBehaviour, ISaveModule
     {
         data.droppedItems = new List<DroppedItemSaveData>();
 
-        var items = FindObjectsOfType<ClickableItem>();
+        var items = FindObjectsByType<ClickableItem>(FindObjectsSortMode.None);
         foreach (var item in items)
         {
             ItemData itemData = item.GetItemData();
@@ -37,7 +37,7 @@ public class DroppedItemSaveModule : MonoBehaviour, ISaveModule
     public void Restore(SaveData data)
     {
         // 기존 드롭 아이템 제거
-        var existingItems = FindObjectsOfType<ClickableItem>();
+        var existingItems = FindObjectsByType<ClickableItem>(FindObjectsSortMode.None);
         foreach (var item in existingItems)
         {
             Destroy(item.gameObject);

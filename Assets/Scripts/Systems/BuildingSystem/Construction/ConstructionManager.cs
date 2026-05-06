@@ -28,8 +28,10 @@ public class ConstructionManager : DestroySingleton<ConstructionManager>, ISaveM
     [SerializeField] private List<BuildingData> allBuildingData = new List<BuildingData>();
 
     [Header("배치 설정")]
-    [SerializeField] private Color validPlacementColor = new Color(1f, 1f, 1f, 0.5f);
-    [SerializeField] private Color invalidPlacementColor = new Color(1f, 0.3f, 0.3f, 0.5f);
+    [SerializeField] private Color validPlacementColor        = new Color(0.3f, 1f,  0.3f, 0.5f); // 초록: 배치 가능 + 자원 충분
+    [SerializeField] private Color cannotAffordPlacementColor = new Color(1f,  1f,  0.3f, 0.5f); // 노란: 위치 OK, 자원 부족
+    [SerializeField] private Color invalidPlacementColor      = new Color(1f,  0.3f,0.3f, 0.5f); // 빨강: 배치 불가
+    [SerializeField] private Color isolationWarningColor      = new Color(1f,  0.6f,0.1f, 0.5f); // 주황: 직원 고립 경고
 
     [Header("건설 현장 관리")]
     [SerializeField] private Transform constructionParent;
@@ -44,6 +46,10 @@ public class ConstructionManager : DestroySingleton<ConstructionManager>, ISaveM
     private GameObject ghostObject;
     private List<SpriteRenderer> ghostRenderers = new List<SpriteRenderer>();
     private bool isCurrentPlacementValid = false;
+
+    // 관절점 체크 캐시 (매 프레임 BFS 실행 방지)
+    private Vector3Int lastCheckedIsolationPos = new Vector3Int(int.MinValue, int.MinValue, 0);
+    private bool cachedIsolationResult = false;
 
     // 캐시
     private GameMap gameMap;
@@ -80,6 +86,16 @@ public class ConstructionManager : DestroySingleton<ConstructionManager>, ISaveM
         if (MapGenerator.instance != null)
         {
             gameMap = MapGenerator.instance.GameMapInstance;
+        }
+
+        // GameDatabase에 등록된 건물 데이터 자동 보완 로드
+        // (씬 Inspector에 없어도 GameDatabase에만 추가하면 자동으로 UI에 반영됨)
+        if (GameDatabase.Instance != null)
+        {
+            foreach (var data in GameDatabase.Instance.GetAllBuildingData())
+            {
+                RegisterBuildingData(data);
+            }
         }
     }
 
@@ -202,9 +218,9 @@ public class ConstructionManager : DestroySingleton<ConstructionManager>, ISaveM
 
         if (!HasRequiredResources(buildingData))
         {
-            Debug.LogWarning($"[ConstructionManager] 자원 부족: {buildingData.buildingName}");
+            // 자원 부족해도 배치 모드 진입 허용 — 고스트가 노란색으로 표시됨
+            Debug.LogWarning($"[ConstructionManager] 자원 부족 (배치 미리보기는 허용): {buildingData.buildingName}");
             LogMissingResources(buildingData);
-            return false;
         }
 
         if (isPlacementMode)
@@ -236,6 +252,8 @@ public class ConstructionManager : DestroySingleton<ConstructionManager>, ISaveM
 
         isPlacementMode = false;
         selectedBuildingData = null;
+        lastCheckedIsolationPos = new Vector3Int(int.MinValue, int.MinValue, 0);
+        cachedIsolationResult   = false;
 
         DestroyPlacementGhost();
 
@@ -294,10 +312,21 @@ public class ConstructionManager : DestroySingleton<ConstructionManager>, ISaveM
                 GameObject buildingGhost = new GameObject("BuildingGhost");
                 buildingGhost.transform.SetParent(ghostObject.transform);
                 SpriteRenderer sr = buildingGhost.AddComponent<SpriteRenderer>();
-                sr.sprite = prefabRenderer.sprite;
+                Sprite spr = prefabRenderer.sprite;
+                sr.sprite = spr;
                 sr.sortingOrder = 101;
                 sr.color = new Color(1f, 1f, 1f, 0.5f);
-                buildingGhost.transform.localPosition = Vector3.zero;
+
+                // 스프라이트 피벗이 어디든 건물 footprint 중앙에 정렬
+                // ghostObject origin = footprint 왼쪽 하단 (gridPos)
+                // footprint 중심 = (size.x/2, size.y/2)
+                // 스프라이트 bounds.center = 피벗 기준 스프라이트 중심
+                // => localPos = footprint중심 - bounds중심 → 스프라이트가 footprint를 정확히 덮음
+                buildingGhost.transform.localPosition = new Vector3(
+                    selectedBuildingData.size.x * 0.5f - spr.bounds.center.x,
+                    selectedBuildingData.size.y * 0.5f - spr.bounds.center.y,
+                    0f
+                );
             }
         }
     }
@@ -324,6 +353,10 @@ public class ConstructionManager : DestroySingleton<ConstructionManager>, ISaveM
     {
         if (ghostObject == null || selectedBuildingData == null) return;
 
+        // gameMap 레이지 초기화
+        if (gameMap == null && MapGenerator.instance != null)
+            gameMap = MapGenerator.instance.GameMapInstance;
+
         Vector3 mouseWorld = GetMouseWorldPosition();
         Vector3Int gridPos = new Vector3Int(
             Mathf.FloorToInt(mouseWorld.x),
@@ -333,29 +366,53 @@ public class ConstructionManager : DestroySingleton<ConstructionManager>, ISaveM
 
         ghostObject.transform.position = new Vector3(gridPos.x, gridPos.y, 0);
 
-        isCurrentPlacementValid = CanPlaceAt(gridPos);
+        bool isPositionValid = CanPlaceAt(gridPos);
+        bool canAfford = HasRequiredResources(selectedBuildingData);
 
-        Color color = isCurrentPlacementValid ? validPlacementColor : invalidPlacementColor;
+        // isCurrentPlacementValid = 위치 유효 AND 자원 충분 (실제 배치 가능 여부)
+        isCurrentPlacementValid = isPositionValid && canAfford;
+
+        // 관절점 체크: 그리드 위치가 바뀐 경우에만 BFS 재실행 (캐시)
+        bool wouldIsolate = false;
+        if (isPositionValid && gameMap != null)
+        {
+            if (gridPos != lastCheckedIsolationPos)
+            {
+                lastCheckedIsolationPos = gridPos;
+                cachedIsolationResult   = ArticulationPointChecker.WouldIsolateEmployee(
+                    gameMap, gridPos, selectedBuildingData.size);
+            }
+            wouldIsolate = cachedIsolationResult;
+        }
+
+        // 4색 고스트:
+        //   초록  → 배치 가능
+        //   주황  → 배치 가능하나 직원 고립 경고
+        //   노란  → 위치 OK, 자원 부족
+        //   빨강  → 배치 불가
+        Color color;
+        if (!isPositionValid)
+            color = invalidPlacementColor;
+        else if (wouldIsolate)
+            color = isolationWarningColor;
+        else if (!canAfford)
+            color = cannotAffordPlacementColor;
+        else
+            color = validPlacementColor;
+
         foreach (var renderer in ghostRenderers)
         {
             if (renderer != null)
-            {
                 renderer.color = color;
-            }
         }
 
         // 건물 고스트 색상 업데이트
-        if (ghostObject.transform.childCount > 0)
+        Transform buildingGhost = ghostObject.transform.Find("BuildingGhost");
+        if (buildingGhost != null)
         {
-            Transform buildingGhost = ghostObject.transform.Find("BuildingGhost");
-            if (buildingGhost != null)
-            {
-                SpriteRenderer sr = buildingGhost.GetComponent<SpriteRenderer>();
-                if (sr != null)
-                {
-                    sr.color = new Color(color.r, color.g, color.b, 0.5f);
-                }
-            }
+            SpriteRenderer sr = buildingGhost.GetComponent<SpriteRenderer>();
+            if (sr != null)
+                sr.color = new Color(color.r, color.g, color.b, 0.5f);
         }
     }
 
@@ -400,7 +457,13 @@ public class ConstructionManager : DestroySingleton<ConstructionManager>, ISaveM
     /// <returns>배치 가능 여부</returns>
     public bool CanPlaceAt(Vector3Int gridPos)
     {
-        if (selectedBuildingData == null || gameMap == null) return false;
+        if (selectedBuildingData == null) return false;
+
+        // gameMap 레이지 초기화 (MapGenerator가 Start() 이후에 준비될 수 있음)
+        if (gameMap == null && MapGenerator.instance != null)
+            gameMap = MapGenerator.instance.GameMapInstance;
+
+        if (gameMap == null) return false;
 
         // 모든 타일 검사
         for (int x = 0; x < selectedBuildingData.size.x; x++)
@@ -423,15 +486,19 @@ public class ConstructionManager : DestroySingleton<ConstructionManager>, ISaveM
             }
         }
 
-        // 바닥 확인 (y-1 위치에 고체 타일이 있어야 함)
-        for (int x = 0; x < selectedBuildingData.size.x; x++)
+        // 바닥 확인 (requiresFloorSupport가 true인 건물만 적용)
+        // 기반 시설(바닥 타일, 사다리, 다리 등)은 이 조건을 건너뜁니다.
+        if (selectedBuildingData.requiresFloorSupport)
         {
-            int checkX = gridPos.x + x;
-            int groundY = gridPos.y - 1;
-
-            if (groundY < 0 || !gameMap.IsSolidGround(checkX, groundY))
+            for (int x = 0; x < selectedBuildingData.size.x; x++)
             {
-                return false;
+                int checkX = gridPos.x + x;
+                int groundY = gridPos.y - 1;
+
+                if (groundY < 0 || !gameMap.IsSolidGround(checkX, groundY))
+                {
+                    return false;
+                }
             }
         }
 
@@ -642,7 +709,7 @@ public class ConstructionManager : DestroySingleton<ConstructionManager>, ISaveM
     {
         // 완성된 건물 캡처
         data.buildings.Clear();
-        var buildings = FindObjectsOfType<Building>();
+        var buildings = FindObjectsByType<Building>(FindObjectsSortMode.None);
         foreach (var building in buildings)
         {
             if (building.buildingData != null)

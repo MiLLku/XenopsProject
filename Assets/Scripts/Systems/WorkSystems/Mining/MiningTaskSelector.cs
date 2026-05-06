@@ -26,7 +26,9 @@ public class MiningTaskSelector
         
         [Header("페널티")]
         public float standingOnTaskPenalty = 100f;  // 서 있는 타일 페널티
-        public float belowFootPenalty = 50f;        // 발 아래 타일 페널티
+        public float belowFootPenalty = 2000f;      // 발 아래 타일 페널티 (낙하 방지 - 최후 수단)
+        public float columnOrderPenalty = 500f;     // 같은 열에 위쪽 미완성 타일이 있을 때 페널티 (Top-Down 강제)
+        public float steppingStonePreservationPenalty = 700f; // 발판 보존: 이 타일이 인접 열 상단 타일의 유일한 발판일 때
         public float unreachablePenalty = 1000f;    // 도달 불가 페널티
     }
     
@@ -50,71 +52,112 @@ public class MiningTaskSelector
     
     /// <summary>
     /// 직원에게 가장 적합한 작업을 선택합니다.
+    /// 낙하 방지 우선순위: 발 아래를 파는 위험한 작업보다 안전한 작업을 먼저 선택합니다.
     /// </summary>
     public WorkTask SelectBestTask(Employee worker, IReadOnlyList<WorkTask> pendingTasks)
     {
         if (worker == null || pendingTasks == null || pendingTasks.Count == 0)
             return null;
-        
+
         var validTasks = pendingTasks.Where(t => t != null && t.IsValid()).ToList();
         if (validTasks.Count == 0)
             return null;
-        
+
         // 직원 정보 수집
         WorkerContext context = CreateWorkerContext(worker);
-        
-        // 모든 작업에 대해 점수 계산
+
+        // 열(Column) 순서 채굴을 위해 대기 중인 모든 타일 위치를 미리 수집
+        var pendingTilePositions = new HashSet<Vector2Int>(validTasks.Select(t => GetTaskTile(t)));
+
+        // ★ float.NegativeInfinity 초기화: float.MinValue(가장 작은 유한수)보다도 작으므로
+        //   도달불가 태스크(float.MinValue 점수)도 첫 번째 비교에서 올바르게 선택됨
         WorkTask bestTask = null;
-        float bestScore = float.MinValue;
-        
+        WorkTask bestSafeTask = null;   // 낙하를 유발하지 않는 최선 작업 (발 아래가 아닌 것)
+        float bestScore = float.NegativeInfinity;
+        float bestSafeScore = float.NegativeInfinity;
+
         foreach (var task in validTasks)
         {
-            float score = CalculateTaskScore(task, context);
-            
+            float score = CalculateTaskScore(task, context, pendingTilePositions);
+
             if (score > bestScore)
             {
                 bestScore = score;
                 bestTask = task;
             }
+
+            // 낙하 유발 타일(발 바로 아래)은 bestSafeTask 후보에서 제외
+            Vector2Int tile = GetTaskTile(task);
+            bool isBelowFoot = IsDirectlyBelowFoot(tile, context);
+            if (!isBelowFoot && score > float.MinValue && score > bestSafeScore)
+            {
+                bestSafeScore = score;
+                bestSafeTask = task;
+            }
         }
-        
-        if (bestTask != null)
+
+        // 안전한 작업이 있으면 우선 선택, 없을 때만 낙하 감수하고 최선 작업 수행
+        WorkTask selected = bestSafeTask ?? bestTask;
+
+        if (selected != null)
         {
-            Debug.Log($"[MiningTaskSelector] 선택: {bestTask.GetPosition()} (점수: {bestScore:F2})");
+            bool isRisky = (bestSafeTask == null);
+            string warningTag = isRisky ? " ⚠낙하위험(최후수단)" : "";
+            float displayScore = isRisky ? bestScore : bestSafeScore;
+            Debug.Log($"[MiningTaskSelector] 선택: {GetTaskTile(selected)} (점수: {displayScore:F2}{warningTag})");
         }
-        
-        return bestTask;
+
+        return selected;
     }
     
     /// <summary>
     /// 작업 점수 계산
     /// Score = (Priority * W_p * HeightBonus) / (Distance * W_d + AccessCost * W_a + Penalties)
+    /// pendingTilePositions: 열(Column) 순서 페널티 계산용 (null이면 생략)
     /// </summary>
-    public float CalculateTaskScore(WorkTask task, WorkerContext context)
+    public float CalculateTaskScore(WorkTask task, WorkerContext context,
+                                    HashSet<Vector2Int> pendingTilePositions = null)
     {
         Vector2Int taskTile = GetTaskTile(task);
-        
+
         // 1. 현재 위치에서 작업 가능한지 체크 (범위 + 시야)
         bool isInWorkRange = IsInWorkRange(context.footTile, taskTile);
         bool hasLineOfSight = HasLineOfSight(context, taskTile);
         bool canWorkFromHere = isInWorkRange && hasLineOfSight;
-        
+
         // 2. 직원이 차지하고 있는 타일인지 체크
         float penalty = 0f;
-        
+
         if (context.occupiedTiles.Contains(taskTile))
         {
             penalty += weights.standingOnTaskPenalty;
             canWorkFromHere = false; // 서 있는 타일은 현재 위치에서 작업 불가
         }
-        
-        // 3. 발 아래 타일인지 체크 (파면 떨어짐)
+
+        // 3. 발 아래 타일인지 체크 (파면 낙하 - 매우 강한 페널티로 최후 수단化)
         if (IsDirectlyBelowFoot(taskTile, context))
         {
             penalty += weights.belowFootPenalty;
         }
-        
-        // 4. 현재 위치에서 작업 불가능하면 이동해야 함 - 도달 가능성 체크
+
+        // 4. 열(Column) Top-Down 순서 체크
+        //    같은 X 열에 이 타일보다 위쪽에 아직 채굴 안 된 타일이 있으면 페널티
+        //    → 항상 위에서 아래로 채굴하도록 강제
+        if (pendingTilePositions != null && HasPendingTaskAbove(taskTile, pendingTilePositions))
+        {
+            penalty += weights.columnOrderPenalty;
+        }
+
+        // 4b. 발판 보존 체크 (cross-column stepping stone)
+        //    이 타일(y)을 파면 인접 열의 상단 타일(y+3)에 접근할 발판(foot y+1)이 사라질 수 있음
+        //    columnOrderPenalty는 같은 열만 보지만 이 체크는 인접 열까지 커버함
+        //    → 인접 열 y+3에 미완성 타일이 있는 한, 이 타일 채굴을 미룸
+        if (pendingTilePositions != null && IsPotentialCrossColumnSteppingStone(taskTile, pendingTilePositions))
+        {
+            penalty += weights.steppingStonePreservationPenalty;
+        }
+
+        // 5. 현재 위치에서 작업 불가능하면 이동해야 함 - 도달 가능성 체크
         if (!canWorkFromHere)
         {
             if (!IsTaskReachable(taskTile, context))
@@ -122,23 +165,23 @@ public class MiningTaskSelector
                 return float.MinValue; // 도달 불가능
             }
         }
-        
-        // 5. 기본 점수 요소 계산
+
+        // 6. 기본 점수 요소 계산
         float priority = Mathf.Max(1, 10 - task.priority); // priority가 낮을수록 높은 점수
         float distance = canWorkFromHere ? 0f : CalculateDistance(context.footTile, taskTile);
         float accessCost = canWorkFromHere ? 0f : CalculateAccessCost(context, taskTile);
         float heightBonus = CalculateHeightBonus(taskTile, context);
         float diagonalBonus = CalculateDiagonalBonus(taskTile, context);
-        
-        // 6. 현재 위치에서 작업 가능하면 큰 보너스
+
+        // 7. 현재 위치에서 작업 가능하면 큰 보너스
         float inRangeBonus = canWorkFromHere ? 10f : 1f;
-        
-        // 7. 최종 점수 계산
+
+        // 8. 최종 점수 계산
         float numerator = priority * weights.priorityWeight * heightBonus * diagonalBonus * inRangeBonus;
         float denominator = distance * weights.distanceWeight + accessCost * weights.accessCostWeight + penalty + 0.1f;
-        
+
         float score = numerator / denominator;
-        
+
         return score;
     }
     
@@ -151,8 +194,8 @@ public class MiningTaskSelector
         int dx = Mathf.Abs(targetTile.x - footTile.x);
         int dy = targetTile.y - footTile.y;  // 양수면 위, 음수면 아래
         
-        // 범위: dx <= 1, dy: -1 ~ +3
-        return dx <= 1 && dy >= -1 && dy <= 3;
+        // 범위: dx <= 1, dy: -1 ~ +2
+        return dx <= 1 && dy >= -1 && dy <= 2;
     }
     
     #endregion
@@ -212,23 +255,32 @@ public class MiningTaskSelector
             var workPositions = GetPotentialWorkPositions(taskTile, context);
             return workPositions.Any(pos => reachabilityMap.IsReachable(context.footTile, pos));
         }
-        
+
         // 없으면 직접 경로 탐색
         if (context.pathfinder == null)
             return true;
-        
+
+        // ★ 직원의 현재 발 위치가 Pathfinder 기준으로 유효하지 않은 경우
+        //   (예: 갓 스폰되어 공중에 있거나, 비표준 위치에 있을 때)
+        //   경로를 계산할 수 없으므로 작업 위치가 존재하면 도달 가능으로 간주합니다.
+        //   실제 이동은 EmployeeWork.AssignWork 에서 별도의 위치 탐색으로 처리합니다.
+        if (!context.pathfinder.IsValidPosition(context.footTile))
+        {
+            return GetPotentialWorkPositions(taskTile, context).Count > 0;
+        }
+
         // 작업 가능한 위치 중 하나라도 도달 가능하면 OK
         var positions = GetPotentialWorkPositions(taskTile, context);
         foreach (var pos in positions)
         {
             if (pos == context.footTile)
                 return true;
-            
+
             var path = context.pathfinder.FindPath(context.footTile, pos);
             if (path != null && path.Count > 0)
                 return true;
         }
-        
+
         return false;
     }
 
@@ -240,17 +292,15 @@ public class MiningTaskSelector
     {
         List<Vector2Int> positions = new List<Vector2Int>();
 
-        Debug.Log($"[MiningTaskSelector] GetPotentialWorkPositions: 타겟={taskTile}, 현재발위치={context.footTile}");
-
-        // 작업 범위: 작업자 기준 좌우 1칸, 위로 3칸, 아래로 1칸
+        // 작업 범위: 작업자 기준 좌우 1칸, 위로 2칸, 아래로 1칸
         // 역으로 계산: 타겟 기준으로 작업자가 서 있을 수 있는 위치
         // 타겟이 작업자의 (dx, dy) 위치에 있으려면, 작업자는 타겟의 (-dx, -dy) 위치에 있어야 함
 
         for (int dx = -1; dx <= 1; dx++)
         {
-            // 작업자 발 기준 dy: -1 ~ +3이면, 
-            // 타겟 기준으로 작업자는 dy: -3 ~ +1 위치
-            for (int workerDy = -3; workerDy <= 1; workerDy++)
+            // 작업자 발 기준 dy: -1 ~ +2이면,
+            // 타겟 기준으로 작업자는 dy: -2 ~ +1 위치
+            for (int workerDy = -2; workerDy <= 1; workerDy++)
             {
                 Vector2Int candidateFootPos = new Vector2Int(taskTile.x + dx, taskTile.y + workerDy);
 
@@ -269,10 +319,7 @@ public class MiningTaskSelector
                 // 유효한 위치인지 확인 (서 있을 수 있는지)
                 if (context.pathfinder != null)
                 {
-                    bool isValid = context.pathfinder.IsValidPosition(candidateFootPos);
-                    Debug.Log($"[MiningTaskSelector] 후보 {candidateFootPos}: IsValidPosition={isValid}");
-
-                    if (isValid)
+                    if (context.pathfinder.IsValidPosition(candidateFootPos))
                     {
                         positions.Add(candidateFootPos);
                     }
@@ -448,10 +495,57 @@ public class MiningTaskSelector
     /// </summary>
     private bool IsDirectlyBelowFoot(Vector2Int taskTile, WorkerContext context)
     {
-        return taskTile.x == context.footTile.x && 
+        return taskTile.x == context.footTile.x &&
                taskTile.y == context.footTile.y - 1;
     }
-    
+
+    /// <summary>
+    /// 같은 열(X좌표)에서 이 타일보다 위에 아직 채굴하지 않은 타일이 있는지 확인
+    /// Top-Down 채굴 순서 강제: 높은 타일부터 채굴해야 낙하 없이 최대 채광 가능
+    /// </summary>
+    private bool HasPendingTaskAbove(Vector2Int taskTile, HashSet<Vector2Int> pendingPositions)
+    {
+        for (int y = taskTile.y + 1; y < GameMap.MAP_HEIGHT; y++)
+        {
+            var above = new Vector2Int(taskTile.x, y);
+            if (!IsInBounds(above)) break;
+            if (pendingPositions.Contains(above))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// 이 타일이 인접 열의 상단 타일(y+3)에 접근하기 위한 발판인지 확인합니다.
+    ///
+    /// 작업 범위가 dy ≤ 2이므로, y_task 타일에 접근하려면 foot이 y_task-2 이상이어야 합니다.
+    /// 즉, y=0 타일은 "foot y=1에 서야 닿는 y=3 타일"의 발판입니다.
+    ///
+    /// 이 체크는 같은 열뿐 아니라 인접 열(x±1)도 커버합니다.
+    /// 예: x=3,y=0 을 파면 x=2,y=3에 접근할 foot y=1 발판이 사라질 수 있음
+    ///
+    /// 단순화 버전: y_t+3에 미완성 타일이 있으면 패널티 부여
+    /// (y+1, y+2 빈 공간 여부를 추가 체크하면 더 정밀하지만 보수적으로 처리)
+    /// </summary>
+    private bool IsPotentialCrossColumnSteppingStone(Vector2Int taskTile, HashSet<Vector2Int> pendingPositions)
+    {
+        int yt = taskTile.y;
+
+        // 이 타일보다 정확히 3칸 위(작업 범위 최대치 dy=2에서 발 위치 +1)에
+        // 인접 열(x±1 포함)에 미완성 타일이 있는지 확인
+        int targetY = yt + 3;
+        if (targetY >= GameMap.MAP_HEIGHT) return false;
+
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            var candidate = new Vector2Int(taskTile.x + dx, targetY);
+            if (IsInBounds(candidate) && pendingPositions.Contains(candidate))
+                return true;
+        }
+
+        return false;
+    }
+
     #endregion
     
     #region 유틸리티

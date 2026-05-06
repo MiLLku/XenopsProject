@@ -64,11 +64,26 @@ public class EmployeeStatsController : MonoBehaviour
     /// <summary>특성 효과: 피로 증가 속도 보정</summary>
     private float cachedFatigueRateModifier = 1f;
 
+    /// <summary>특성/스킬 효과: 물리 피해 감소 (%)</summary>
+    private float cachedPhysicalDamageReduction = 0f;
+
+    /// <summary>특성/스킬 효과: 침식 오라 무시 수치 (flat)</summary>
+    private float cachedErosionIgnoreBonus = 0f;
+
+    /// <summary>특성/스킬 효과: 이동 속도 보정 (1.0 = 정상)</summary>
+    private float cachedMoveSpeedModifier = 1f;
+
+    /// <summary>특성/스킬 효과: 기술 상승 속도 보정 (1.0 = 정상)</summary>
+    private float cachedSkillGainRateModifier = 1f;
+
     /// <summary>장비 스탯 보정 (슬롯별)</summary>
     private Dictionary<EquipmentSlot, EquipmentStatModifier> equipmentModifiers = new Dictionary<EquipmentSlot, EquipmentStatModifier>();
 
     /// <summary>코디네이터 참조</summary>
     private Employee employee;
+
+    /// <summary>스킬 상태 참조 (스킬 부여 특성 효과 읽기)</summary>
+    private EmployeeSkillState skillState;
 
     #endregion
 
@@ -93,6 +108,18 @@ public class EmployeeStatsController : MonoBehaviour
     /// <summary>캐시된 글로벌 작업 속도 보정</summary>
     public float CachedWorkSpeedModifier => cachedWorkSpeedModifier;
 
+    /// <summary>캐시된 물리 피해 감소 (%)</summary>
+    public float CachedPhysicalDamageReduction => cachedPhysicalDamageReduction;
+
+    /// <summary>캐시된 침식 오라 무시 수치 (flat)</summary>
+    public float CachedErosionIgnoreBonus => cachedErosionIgnoreBonus;
+
+    /// <summary>캐시된 이동 속도 보정 (1.0 = 정상)</summary>
+    public float CachedMoveSpeedModifier => cachedMoveSpeedModifier;
+
+    /// <summary>캐시된 기술 상승 속도 보정 (1.0 = 정상)</summary>
+    public float CachedSkillGainRateModifier => cachedSkillGainRateModifier;
+
     #endregion
 
     #region 초기화
@@ -100,6 +127,7 @@ public class EmployeeStatsController : MonoBehaviour
     void Awake()
     {
         employee = GetComponent<Employee>();
+        skillState = GetComponent<EmployeeSkillState>();
     }
 
     /// <summary>
@@ -209,27 +237,57 @@ public class EmployeeStatsController : MonoBehaviour
 
     /// <summary>
     /// 모든 특성의 효과를 계산하여 캐시합니다.
+    /// EmployeeData 특성 + 해제된 스킬 부여 특성 모두 포함합니다.
     /// </summary>
     public void CalculateTraitModifiers(EmployeeData data)
     {
-        cachedHealthModifier = 1f;
-        cachedMentalModifier = 1f;
-        cachedWorkSpeedModifier = 1f;
-        cachedHungerRateModifier = 1f;
-        cachedFatigueRateModifier = 1f;
+        cachedHealthModifier           = 1f;
+        cachedMentalModifier           = 1f;
+        cachedWorkSpeedModifier        = 1f;
+        cachedHungerRateModifier       = 1f;
+        cachedFatigueRateModifier      = 1f;
+        cachedPhysicalDamageReduction  = 0f;
+        cachedErosionIgnoreBonus       = 0f;
+        cachedMoveSpeedModifier        = 1f;
+        cachedSkillGainRateModifier    = 1f;
 
-        if (data?.traits == null) return;
-
-        foreach (var trait in data.traits)
+        // EmployeeData 내장 특성
+        if (data?.traits != null)
         {
-            if (trait == null) continue;
-
-            cachedHealthModifier += trait.effects.healthModifier / 100f;
-            cachedMentalModifier += trait.effects.mentalModifier / 100f;
-            cachedWorkSpeedModifier += trait.effects.globalWorkSpeedModifier / 100f;
-            cachedHungerRateModifier += trait.effects.hungerRateModifier / 100f;
-            cachedFatigueRateModifier += trait.effects.fatigueRateModifier / 100f;
+            foreach (var trait in data.traits)
+            {
+                if (trait == null) continue;
+                ApplyTraitEffects(trait.effects);
+            }
         }
+
+        // 해제된 스킬 부여 특성
+        if (skillState != null)
+        {
+            ApplyTraitEffects(skillState.GetActiveTraitEffects());
+        }
+    }
+
+    /// <summary>
+    /// 스킬 해제 등으로 특성 효과가 변경됐을 때 재계산합니다.
+    /// EmployeeSkillState.Unlock()에서 호출됩니다.
+    /// </summary>
+    public void RecalculateModifiers()
+    {
+        CalculateTraitModifiers(employee?.Data);
+    }
+
+    private void ApplyTraitEffects(TraitEffects fx)
+    {
+        cachedHealthModifier          += fx.healthModifier / 100f;
+        cachedMentalModifier          += fx.mentalModifier / 100f;
+        cachedWorkSpeedModifier       += fx.globalWorkSpeedModifier / 100f;
+        cachedHungerRateModifier      += fx.hungerRateModifier / 100f;
+        cachedFatigueRateModifier     += fx.fatigueRateModifier / 100f;
+        cachedPhysicalDamageReduction += fx.physicalDamageReduction;
+        cachedErosionIgnoreBonus      += fx.erosionIgnoreBonus;
+        cachedMoveSpeedModifier       += fx.moveSpeedModifier / 100f;
+        cachedSkillGainRateModifier   += fx.skillGainRateModifier / 100f;
     }
 
     /// <summary>
@@ -295,6 +353,16 @@ public class EmployeeStatsController : MonoBehaviour
         currentNeeds.fatigue = Mathf.Clamp(currentNeeds.fatigue, 0f, 100f);
         OnNeedsChanged?.Invoke(currentNeeds);
     }
+
+    /// <summary>침식 수치를 설정합니다. 0 = 회복, 양수 = 제노프스 등에 의한 침식 적용.</summary>
+    public void SetErosion(float level)
+    {
+        currentStats.erosionLevel = Mathf.Max(0f, level);
+        OnStatsChanged?.Invoke(currentStats);
+    }
+
+    /// <summary>현재 침식 수치</summary>
+    public float ErosionLevel => currentStats.erosionLevel;
 
     /// <summary>
     /// 피로도에 따른 작업 속도 감소율을 반환합니다.
@@ -389,24 +457,11 @@ public class EmployeeStatsController : MonoBehaviour
         currentStats.health = Mathf.Clamp(currentStats.health, 0f, currentStats.maxHealth);
         currentStats.mental = Mathf.Clamp(currentStats.mental, 0f, currentStats.maxMental);
 
-        // 퍼센트 보정 (특성 보정 + 장비 보정)
-        cachedWorkSpeedModifier = 1f;
-        cachedHungerRateModifier = 1f;
-        cachedFatigueRateModifier = 1f;
+        // 퍼센트 보정 — 특성/스킬 전부 재계산 후 장비 보정 합산
+        CalculateTraitModifiers(data);
 
-        if (data?.traits != null)
-        {
-            foreach (var trait in data.traits)
-            {
-                if (trait == null) continue;
-                cachedWorkSpeedModifier += trait.effects.globalWorkSpeedModifier / 100f;
-                cachedHungerRateModifier += trait.effects.hungerRateModifier / 100f;
-                cachedFatigueRateModifier += trait.effects.fatigueRateModifier / 100f;
-            }
-        }
-
-        cachedWorkSpeedModifier += equipWorkSpeedMod / 100f;
-        cachedHungerRateModifier += equipHungerRateMod / 100f;
+        cachedWorkSpeedModifier   += equipWorkSpeedMod / 100f;
+        cachedHungerRateModifier  += equipHungerRateMod / 100f;
         cachedFatigueRateModifier += equipFatigueRateMod / 100f;
 
         OnStatsChanged?.Invoke(currentStats);

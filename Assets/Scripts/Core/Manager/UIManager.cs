@@ -139,6 +139,23 @@ public class UIManager : DestroySingleton<UIManager>
     }
 
     /// <summary>
+    /// 직원 스킬 트리 패널을 엽니다.
+    /// SkillTreePanel에 직접 싱글턴이 없어도 UIManager를 통해 호출할 수 있습니다.
+    /// </summary>
+    /// <param name="employee">스킬 트리를 열 대상 직원</param>
+    public void ShowSkillTree(Employee employee)
+    {
+        var panel = GetPanel<SkillTreePanel>(UIPanelType.SkillTreeUI);
+        if (panel == null)
+        {
+            Debug.LogWarning("[UIManager] SkillTreePanel이 uiList에 등록되지 않았습니다.");
+            return;
+        }
+        panel.Setup(employee);
+        // Setup() 내부에서 OnOpen()을 호출하므로 ShowPanel()은 중복 호출하지 않음
+    }
+
+    /// <summary>
     /// 가장 최근에 열린 팝업을 닫습니다 (ESC 입력 시 사용).
     /// </summary>
     /// <returns>닫힌 팝업이 있으면 true</returns>

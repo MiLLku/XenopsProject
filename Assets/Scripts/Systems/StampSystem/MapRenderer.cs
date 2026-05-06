@@ -14,6 +14,10 @@ public class MapRenderer : MonoBehaviour
     [SerializeField] private Tilemap wallTilemap;
     [SerializeField] public Transform entityParent;
 
+    [Header("안개 (Fog of War)")]
+    [SerializeField] private Tilemap fogTilemap;
+    [SerializeField] private TileBase fogTile; // 회색 반투명 타일 에셋을 인스펙터에서 연결
+
     private GameMap _gameMap;
     private ResourceManager _resourceManager;
 
@@ -137,11 +141,93 @@ public class MapRenderer : MonoBehaviour
     }
 
     /// <summary>
+    /// 현재 GameMap.Entities 목록을 기반으로 개체(나무, 식물 등)를 인스턴스화합니다.
+    /// 세이브 복원 후 자연물 재생성 시 사용됩니다.
+    /// </summary>
+    public void RenderRestoredEntities()
+    {
+        if (_gameMap == null || _resourceManager == null)
+        {
+            Debug.LogWarning("[MapRenderer] RenderRestoredEntities: GameMap 또는 ResourceManager가 없습니다.");
+            return;
+        }
+
+        RenderEntities();
+        Debug.Log($"[MapRenderer] 복원된 개체 {_gameMap.Entities.Count}개 렌더링 완료");
+    }
+
+    /// <summary>
     /// 리소스 매니저를 반환합니다.
     /// </summary>
     public ResourceManager GetResourceManager()
     {
         return _resourceManager;
+    }
+
+    #endregion
+
+    #region 안개 (Fog of War)
+
+    /// <summary>
+    /// 전체 맵을 안개로 채웁니다.
+    /// SetTiles 배치 API를 사용하여 드로우콜 1회로 처리합니다.
+    /// 새 게임 시작 시 FogOfWarManager.InitializeFog()에서 호출됩니다.
+    /// </summary>
+    public void InitializeFog()
+    {
+        if (fogTilemap == null || fogTile == null)
+        {
+            Debug.LogWarning("[MapRenderer] fogTilemap 또는 fogTile이 인스펙터에 연결되지 않았습니다.");
+            return;
+        }
+
+        int total = GameMap.MAP_WIDTH * GameMap.MAP_HEIGHT;
+        var positions = new Vector3Int[total];
+        var tiles     = new TileBase[total];
+
+        for (int i = 0; i < total; i++)
+        {
+            int x = i % GameMap.MAP_WIDTH;
+            int y = i / GameMap.MAP_WIDTH;
+            positions[i] = new Vector3Int(x, y, 0);
+            tiles[i]     = fogTile;
+        }
+
+        fogTilemap.SetTiles(positions, tiles);
+    }
+
+    /// <summary>
+    /// 지정 타일 위치의 안개를 제거합니다.
+    /// 직원이 타일에 도달할 때마다 RevealAround에서 호출됩니다.
+    /// </summary>
+    public void ClearFogAt(int x, int y)
+    {
+        fogTilemap?.SetTile(new Vector3Int(x, y, 0), null);
+    }
+
+    /// <summary>
+    /// 저장된 탐색 상태를 안개 타일맵에 일괄 반영합니다.
+    /// revealed[x,y] = true → 안개 없음, false → 안개.
+    /// 세이브 로드 시 FogOfWarManager.Restore()에서 호출됩니다.
+    /// </summary>
+    public void RestoreFog(bool[,] revealed)
+    {
+        if (fogTilemap == null || fogTile == null) return;
+
+        int total     = GameMap.MAP_WIDTH * GameMap.MAP_HEIGHT;
+        var positions = new Vector3Int[total];
+        var tiles     = new TileBase[total];
+
+        for (int i = 0; i < total; i++)
+        {
+            int x = i % GameMap.MAP_WIDTH;
+            int y = i / GameMap.MAP_WIDTH;
+            positions[i] = new Vector3Int(x, y, 0);
+            tiles[i]     = revealed[x, y] ? null : fogTile;
+        }
+
+        fogTilemap.SetTiles(positions, tiles);
+        Debug.Log("[MapRenderer] 안개 복원 완료");
     }
 
     #endregion

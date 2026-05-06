@@ -25,8 +25,8 @@ public class Employee : MonoBehaviour
 {
     #region 상수
 
-    /// <summary>디버그 로그 출력 프레임 간격</summary>
-    private const int DEBUG_LOG_INTERVAL = 60;
+    /// <summary>디버그 로그 출력 시간 간격 (초)</summary>
+    private const float DEBUG_LOG_INTERVAL_SECONDS = 10f;
 
     #endregion
 
@@ -47,6 +47,9 @@ public class Employee : MonoBehaviour
     /// <summary>초기화 완료 여부 (로드 시 중복 초기화 방지)</summary>
     private bool _isInitialized = false;
 
+    /// <summary>디버그 로그 타이머</summary>
+    private float _debugLogTimer = 0f;
+
     // 서브 컴포넌트 참조
     private EmployeeStatsController statsController;
     private EmployeeWork work;
@@ -55,6 +58,10 @@ public class Employee : MonoBehaviour
     private EmployeeMovement movement;
     private EmployeeAI aiController;
     private EmployeeEquipment equipment;
+    private EmployeeErosionController erosionController;
+    private EmployeeSchedule schedule;
+    private EmployeeDraft draft;
+    private EmployeeZoneAssignment zoneAssignment;
     private SpriteRenderer spriteRenderer;
 
     #endregion
@@ -111,6 +118,9 @@ public class Employee : MonoBehaviour
     /// <summary>현재 욕구</summary>
     public EmployeeNeeds Needs => statsController != null ? statsController.Needs : default;
 
+    /// <summary>스탯 컨트롤러 직접 접근 (침식 무시 보너스 등 캐시 읽기용)</summary>
+    public EmployeeStatsController StatsController => statsController;
+
     #endregion
 
     #region 프로퍼티 — 작업 (Work 위임)
@@ -121,8 +131,8 @@ public class Employee : MonoBehaviour
     /// <summary>현재 작업 진행도 (0~1)</summary>
     public float WorkProgress => work != null ? work.WorkProgress : 0f;
 
-    /// <summary>작업 할당 가능 여부 (Idle 상태일 때)</summary>
-    public bool IsAvailableForWork => currentState == EmployeeState.Idle;
+    /// <summary>작업 할당 가능 여부 (Idle + 소집 아님)</summary>
+    public bool IsAvailableForWork => currentState == EmployeeState.Idle && !IsDrafted;
 
     /// <summary>작업 능력 (런타임 값 우선)</summary>
     public WorkAbilities Abilities => work != null ? work.Abilities : employeeData?.abilities;
@@ -163,6 +173,10 @@ public class Employee : MonoBehaviour
         movement = GetComponent<EmployeeMovement>() ?? gameObject.AddComponent<EmployeeMovement>();
         aiController = GetComponent<EmployeeAI>() ?? gameObject.AddComponent<EmployeeAI>();
         equipment = GetComponent<EmployeeEquipment>() ?? gameObject.AddComponent<EmployeeEquipment>();
+        erosionController = GetComponent<EmployeeErosionController>() ?? gameObject.AddComponent<EmployeeErosionController>();
+        schedule = GetComponent<EmployeeSchedule>() ?? gameObject.AddComponent<EmployeeSchedule>();
+        draft = GetComponent<EmployeeDraft>() ?? gameObject.AddComponent<EmployeeDraft>();
+        zoneAssignment = GetComponent<EmployeeZoneAssignment>() ?? gameObject.AddComponent<EmployeeZoneAssignment>();
     }
 
     void Start()
@@ -194,9 +208,14 @@ public class Employee : MonoBehaviour
     {
         if (currentState == EmployeeState.Dead) return;
 
-        if (showDebugInfo && Time.frameCount % DEBUG_LOG_INTERVAL == 0)
+        if (showDebugInfo)
         {
-            ShowDebugStatus();
+            _debugLogTimer -= Time.deltaTime;
+            if (_debugLogTimer <= 0f)
+            {
+                _debugLogTimer = DEBUG_LOG_INTERVAL_SECONDS;
+                ShowDebugStatus();
+            }
         }
     }
 
@@ -218,6 +237,9 @@ public class Employee : MonoBehaviour
         statsController.Initialize(data);
         work.Initialize(data);
         growth.Initialize(isUnique);
+        erosionController.Initialize(
+            ErosionManager.instance?.StageConfig,
+            ErosionManager.instance?.RecoveryConfig);
 
         // RuntimeIDRegistry 등록
         if (instanceId > 0 && RuntimeIDRegistry.instance != null)
@@ -262,6 +284,7 @@ public class Employee : MonoBehaviour
             EmployeeState.Moving => Color.cyan,
             EmployeeState.Resting => new Color(0.5f, 0.5f, 1f),
             EmployeeState.Eating => new Color(0.5f, 1f, 0.5f),
+            EmployeeState.Drafted => new Color(1f, 0.5f, 0f),
             EmployeeState.MentalBreak => Color.magenta,
             EmployeeState.Dead => Color.gray,
             _ => Color.white
@@ -284,6 +307,10 @@ public class Employee : MonoBehaviour
     /// <summary>제작 작업 할당 (ProductionBuilding에서 호출)</summary>
     public void AssignCraftingWork(CraftingOrder craftingOrder, Vector3 workPosition)
         => work?.AssignCraftingWork(craftingOrder, workPosition);
+
+    /// <summary>연구 작업 할당 (ResearchWorkbench에서 호출)</summary>
+    public void AssignResearchWork(ResearchWorkbench bench, Vector3 workPosition)
+        => work?.AssignResearchWork(bench, workPosition);
 
     /// <summary>현재 작업 취소</summary>
     public void CancelWork()
@@ -338,6 +365,15 @@ public class Employee : MonoBehaviour
     /// <summary>피로도 수정</summary>
     public void ModifyFatigue(float amount) => statsController?.ModifyFatigue(amount);
 
+    /// <summary>침식 수치 설정 (0 = 회복)</summary>
+    public void SetErosion(float level) => statsController?.SetErosion(level);
+
+    /// <summary>현재 침식 수치</summary>
+    public float ErosionLevel => statsController != null ? statsController.ErosionLevel : 0f;
+
+    /// <summary>침식 컨트롤러 참조</summary>
+    public EmployeeErosionController ErosionController => erosionController;
+
     #endregion
 
     #region 파사드 — 성장 (Growth 위임)
@@ -377,6 +413,57 @@ public class Employee : MonoBehaviour
     /// <summary>동적 비자격 제거</summary>
     public void RemoveDisqualification(WorkType workType)
         => work?.RemoveDisqualification(workType);
+
+    #endregion
+
+    #region 파사드 — 스케줄 (Schedule 위임)
+
+    /// <summary>현재 시간대의 스케줄 활동</summary>
+    public ScheduleActivity CurrentScheduleActivity
+        => schedule != null ? schedule.GetCurrentActivity() : ScheduleActivity.Anything;
+
+    /// <summary>스케줄 컴포넌트 참조</summary>
+    public EmployeeSchedule Schedule => schedule;
+
+    #endregion
+
+    #region 파사드 — 소집 (Draft 위임)
+
+    /// <summary>소집 상태 여부</summary>
+    public bool IsDrafted => draft != null && draft.IsDrafted;
+
+    /// <summary>소집 토글</summary>
+    public void ToggleDraft() => draft?.ToggleDraft();
+
+    /// <summary>소집 상태에서 직접 이동 명령</summary>
+    public void CommandMoveTo(Vector3 worldPosition) => draft?.CommandMoveTo(worldPosition);
+
+    /// <summary>소집 컴포넌트 참조</summary>
+    public EmployeeDraft Draft => draft;
+
+    #endregion
+
+    #region 파사드 — 구역 할당 (ZoneAssignment 위임)
+
+    /// <summary>특정 활동 타입에 구역 할당 (UI에서 호출)</summary>
+    public void AssignZone(ZoneType type, int zoneId) => zoneAssignment?.AssignZone(type, zoneId);
+
+    /// <summary>특정 활동 타입의 구역 할당 해제</summary>
+    public void ClearZone(ZoneType type) => zoneAssignment?.ClearZone(type);
+
+    /// <summary>특정 활동 타입에 할당된 구역 ID (-1 = 미할당)</summary>
+    public int GetAssignedZoneId(ZoneType type)
+        => zoneAssignment != null ? zoneAssignment.GetAssignedZoneId(type) : -1;
+
+    /// <summary>구역 할당 컴포넌트 참조</summary>
+    public EmployeeZoneAssignment ZoneAssignment => zoneAssignment;
+
+    #endregion
+
+    #region 파사드 — 스킬 트리 (EmployeeSkillState 위임)
+
+    /// <summary>이 직원의 스킬 트리 상태 컴포넌트 (없으면 null)</summary>
+    public EmployeeSkillState SkillState => GetComponent<EmployeeSkillState>();
 
     #endregion
 
@@ -443,6 +530,10 @@ public class Employee : MonoBehaviour
         growth?.PopulateSaveData(saveData);
         mental?.PopulateSaveData(saveData);
         equipment?.PopulateSaveData(saveData);
+        erosionController?.PopulateSaveData(saveData);
+        schedule?.PopulateSaveData(saveData);
+        draft?.PopulateSaveData(saveData);
+        zoneAssignment?.PopulateSaveData(saveData);
 
         return saveData;
     }
@@ -474,6 +565,10 @@ public class Employee : MonoBehaviour
         growth?.RestoreFromSaveData(data, isUnique);
         mental?.RestoreFromSaveData(data);
         equipment?.RestoreFromSaveData(data);
+        erosionController?.RestoreFromSaveData(data);
+        schedule?.RestoreFromSaveData(data);
+        draft?.RestoreFromSaveData(data);
+        zoneAssignment?.RestoreFromSaveData(data);
 
         UpdateVisualState();
 
